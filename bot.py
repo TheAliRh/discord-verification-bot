@@ -5,7 +5,7 @@ from discord import app_commands
 from discord.ext import commands
 from dotenv import load_dotenv
 
-from config import config_manager
+from settings import settings_manager
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -18,18 +18,18 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    await config_manager.init()
+    await settings_manager.init()
     await bot.tree.sync()
     print(f"Logged in as {bot.user} (id: {bot.user.id})")
-    print("Config layer initialized.")
+    print("Settings layer initialized.")
 
 
 @bot.tree.command(
-    name="verify-view", description="View this server's verification config"
+    name="verify-view", description="View this server's verification settings"
 )
 async def verify_view(interaction: discord.Interaction):
-    config = await config_manager.get(interaction.guild_id)
-    pretty = json.dumps(config, indent=2)
+    settings = await settings_manager.get(interaction.guild_id)
+    pretty = json.dumps(settings, indent=2)
 
     if len(pretty) > 1900:
         pretty = pretty[:1900] + "\n... (truncated)"
@@ -52,23 +52,23 @@ async def verify_view(interaction: discord.Interaction):
 async def verify_set_method(
     interaction: discord.Interaction, method: app_commands.Choice[str]
 ):
-    new_config = await config_manager.update(
+    new_settings = await settings_manager.update(
         interaction.guild_id, {"method": method.value}
     )
     await interaction.response.send_message(
-        f"Verification method set to **{new_config['method']}**.", ephemeral=True
+        f"Verification method set to **{new_settings['method']}**.", ephemeral=True
     )
 
 
 @bot.tree.command(
     name="verify-reset",
-    description="Reset this server's verification config to defaults",
+    description="Reset this server's verification settings to defaults",
 )
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_reset(interaction: discord.Interaction):
-    await config_manager.reset(interaction.guild_id)
+    await settings_manager.reset(interaction.guild_id)
     await interaction.response.send_message(
-        "Verification config reset to defaults.", ephemeral=True
+        "Verification settings reset to defaults.", ephemeral=True
     )
 
 
