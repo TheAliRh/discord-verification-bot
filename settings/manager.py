@@ -20,7 +20,7 @@ from pathlib import Path
 
 from .defaults import DEFAULT_SETTINGS
 
-DB_PATH = Path(__file__).parent.parent / "data" / "bot.db"
+DB_PATH = Path(__file__).parent.parent / "database" / "bot.db"
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
