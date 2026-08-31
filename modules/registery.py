@@ -1,0 +1,28 @@
+"""
+Registry of available verification modules.
+
+Central place to look up "which module handles settings['method']".
+Falls back to Button if a guild's set method somehow doesn't
+match any registered module (e.g. a method was removed in an update).
+"""
+
+from .button import ButtonVerification
+from .captcha import CaptchaVerification
+from .image_captcha import ImageCaptchaVerification
+
+MODULES = {
+    "button": ButtonVerification(),
+    "captcha": CaptchaVerification(),
+    "image_captcha": ImageCaptchaVerification(),
+}
+
+DEFAULT_METHOD_KEY = "button"
+
+
+def get_module(method_key: str):
+    return MODULES.get(method_key, MODULES[DEFAULT_METHOD_KEY])
+
+
+def all_persistent_views():
+    """Used on bot startup to re-register every module's persistent view."""
+    return [module.get_persistent_view() for module in MODULES.values()]
