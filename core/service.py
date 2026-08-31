@@ -7,7 +7,6 @@ error handling, and logging behave identically no matter which method
 (button, captcha, future email/OAuth2/etc.) triggered it.
 """
 
-from logging import settigns
 import discord
 
 
