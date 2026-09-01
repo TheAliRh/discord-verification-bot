@@ -10,12 +10,14 @@ from .button import ButtonVerification
 from .captcha import CaptchaVerification
 from .image_captcha import ImageCaptchaVerification
 from .email_verification import EmailVerification
+from .phone_verification import PhoneVerification
 
 MODULES = {
     "button": ButtonVerification(),
     "captcha": CaptchaVerification(),
     "image_captcha": ImageCaptchaVerification(),
     "email": EmailVerification(),
+    "phone": PhoneVerification(),
 }
 
 DEFAULT_METHOD_KEY = "button"
