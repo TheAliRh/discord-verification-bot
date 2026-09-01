@@ -73,6 +73,7 @@ async def verify_view(interaction: discord.Interaction):
         app_commands.Choice(name="Button", value="button"),
         app_commands.Choice(name="Captcha (text)", value="captcha"),
         app_commands.Choice(name="Captcha (image)", value="image_captcha"),
+        app_commands.Choice(name="Email", value="email"),
     ]
 )
 @app_commands.checks.has_permissions(manage_guild=True)
