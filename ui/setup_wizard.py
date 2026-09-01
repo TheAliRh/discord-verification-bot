@@ -143,7 +143,7 @@ class FinishSetupButton(discord.ui.Button):
         wizard.stop()
 
         await interaction.response.edit_message(
-            content="✅ Verification set! Run `/verify-post` in the channel you chose to publish the message.",
+            content="✅ Verification configured! Run `/verify-post` in the channel you chose to publish the message.",
             embed=wizard.build_embed(final=True),
             view=wizard,
         )
@@ -189,7 +189,7 @@ class SetupView(discord.ui.View):
 
     def build_embed(self, final: bool = False) -> discord.Embed:
         embed = discord.Embed(
-            title="Verification set" if final else "Verification setup"
+            title="Verification configured" if final else "Verification setup"
         )
 
         module = MODULES.get(self.method)
