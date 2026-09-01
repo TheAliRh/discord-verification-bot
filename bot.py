@@ -8,14 +8,27 @@ from dotenv import load_dotenv
 from settings import settings_manager
 from modules import get_module, all_persistent_views, MODULES
 from ui import SetupView
+from web import start_server
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+OAUTH_SERVER_PORT = int(os.getenv("OAUTH_SERVER_PORT", "8080"))
 
 intents = discord.Intents.default()
 intents.members = True  # required to detect joins later - enable in Dev Portal too
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+
+class VerifyBot(commands.Bot):
+    async def setup_hook(self):
+        # setup_hook runs exactly once, before the bot connects to the
+        # gateway - the correct place to start a background service like
+        # the OAuth2 callback server, rather than doing it in on_ready
+        # (which can fire more than once on reconnects).
+        self.web_runner = await start_server(self, port=OAUTH_SERVER_PORT)
+        print(f"OAuth2 callback server listening on port {OAUTH_SERVER_PORT}")
+
+
+bot = VerifyBot(command_prefix="!", intents=intents)
 
 
 @bot.event
@@ -75,6 +88,7 @@ async def verify_view(interaction: discord.Interaction):
         app_commands.Choice(name="Captcha (image)", value="image_captcha"),
         app_commands.Choice(name="Email", value="email"),
         app_commands.Choice(name="Phone (SMS)", value="phone"),
+        app_commands.Choice(name="OAuth2", value="oauth2"),
     ]
 )
 @app_commands.checks.has_permissions(manage_guild=True)
