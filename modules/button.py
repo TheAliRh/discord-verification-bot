@@ -1,13 +1,14 @@
 """
 Button verification.
 
-Simplest method: user clicks a button, they're immediately verified.
-No challenge, no state to track between interactions.
+Simplest method: user clicks a button, they're immediately verified
+(after passing any shared pre-checks, e.g. minimum account age).
 """
 
 import discord
 from core.base import VerificationModule
 from core import service
+from core.prechecks import passes_prechecks
 
 
 class VerifyButton(discord.ui.Button):
@@ -22,12 +23,16 @@ class VerifyButton(discord.ui.Button):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        # Settings is looked up fresh at click-time, not baked into the view,
+        # Settings are looked up fresh at click-time, not baked into the view,
         # so one persistent view definition works correctly for every guild.
         from settings import settings_manager
 
-        settings = await settings_manager.get(interaction.guild_id)
-        await service.grant_verified(interaction, settings)
+        guild_settings = await settings_manager.get(interaction.guild_id)
+
+        if not await passes_prechecks(interaction, guild_settings):
+            return
+
+        await service.grant_verified(interaction, guild_settings)
 
 
 class ButtonVerificationView(discord.ui.View):
