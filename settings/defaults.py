@@ -2,7 +2,7 @@
 Default verification settings.
 
 This is what a guild "sees" if it has never run /verify setup.
-The bot should work out of the box with these values - no settings required.
+The bot should work out of the box with these values - no setup required.
 """
 
 DEFAULT_SETTINGS = {
