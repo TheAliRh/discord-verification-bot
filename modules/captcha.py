@@ -1,8 +1,9 @@
 """
 Text captcha.
 
-User clicks Verify -> we generate a random code and show it in a modal
-text field's label -> user types it back -> we check it matches.
+User clicks Verify (after passing shared pre-checks, e.g. minimum account
+age) -> we generate a random code and show it in a modal text field's
+label -> user types it back -> we check it matches.
 
 No image generation - the code is dependency-free but weak, since the
 code sits in plain text right on the form. See modules/image_captcha.py
@@ -12,6 +13,7 @@ for a version that actually requires reading a distorted image.
 import discord
 from core.base import VerificationModule
 from core import service
+from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
 
 
@@ -47,16 +49,19 @@ class CaptchaButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         from settings import settings_manager
 
-        settings = await settings_manager.get(interaction.guild_id)
-        captcha_settings = settings["method_settings"]["captcha"]
+        guild_settings = await settings_manager.get(interaction.guild_id)
 
+        if not await passes_prechecks(interaction, guild_settings):
+            return
+
+        method_settings = guild_settings["method_settings"]["captcha"]
         code = generate_code(
-            captcha_settings.get("length", 6),
-            captcha_settings.get("type", "alphanumeric"),
+            method_settings.get("length", 6),
+            method_settings.get("type", "alphanumeric"),
         )
         store_challenge(interaction.user.id, code)
 
-        await interaction.response.send_modal(CaptchaModal(code, captcha_settings))
+        await interaction.response.send_modal(CaptchaModal(code, guild_settings))
 
 
 class CaptchaVerificationView(discord.ui.View):
