@@ -1,19 +1,21 @@
 """
 Registry of available verification modules.
 
-Central place to look up "which module handles settings['method']".
-Falls back to Button if a guild's set method somehow doesn't
+Central place to look up "which module handles config['method']".
+Falls back to Button if a guild's configured method somehow doesn't
 match any registered module (e.g. a method was removed in an update).
 """
 
 from .button import ButtonVerification
 from .captcha import CaptchaVerification
 from .image_captcha import ImageCaptchaVerification
+from .email_verification import EmailVerification
 
 MODULES = {
     "button": ButtonVerification(),
     "captcha": CaptchaVerification(),
     "image_captcha": ImageCaptchaVerification(),
+    "email": EmailVerification(),
 }
 
 DEFAULT_METHOD_KEY = "button"
