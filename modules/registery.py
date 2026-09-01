@@ -11,6 +11,7 @@ from .captcha import CaptchaVerification
 from .image_captcha import ImageCaptchaVerification
 from .email_verification import EmailVerification
 from .phone_verification import PhoneVerification
+from .oauth2_verification import OAuth2Verification
 
 MODULES = {
     "button": ButtonVerification(),
@@ -18,6 +19,7 @@ MODULES = {
     "image_captcha": ImageCaptchaVerification(),
     "email": EmailVerification(),
     "phone": PhoneVerification(),
+    "oauth2": OAuth2Verification(),
 }
 
 DEFAULT_METHOD_KEY = "button"
