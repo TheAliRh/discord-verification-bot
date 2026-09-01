@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 
 from settings import settings_manager
 from modules import get_module, all_persistent_views, MODULES
+from ui import SetupView
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -32,12 +33,30 @@ async def on_ready():
     print("Settings layer initialized. Persistent views registered.")
 
 
+verify_group = app_commands.Group(name="verify", description="Verification setup")
+
+
+@verify_group.command(
+    name="setup", description="Interactive setup wizard for verification"
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def verify_setup(interaction: discord.Interaction):
+    current_settings = await settings_manager.get(interaction.guild_id)
+    view = SetupView(current_settings)
+    await interaction.response.send_message(
+        embed=view.build_embed(), view=view, ephemeral=True
+    )
+
+
+bot.tree.add_command(verify_group)
+
+
 @bot.tree.command(
     name="verify-view", description="View this server's verification settings"
 )
 async def verify_view(interaction: discord.Interaction):
-    settings = await settings_manager.get(interaction.guild_id)
-    pretty = json.dumps(settings, indent=2)
+    guild_settings = await settings_manager.get(interaction.guild_id)
+    pretty = json.dumps(guild_settings, indent=2)
 
     if len(pretty) > 1900:
         pretty = pretty[:1900] + "\n... (truncated)"
@@ -89,26 +108,56 @@ async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
 
 
 @bot.tree.command(
+    name="verify-set-min-age",
+    description="Require a minimum Discord account age (in days) before someone can verify",
+)
+@app_commands.describe(days="Minimum account age in days. Use 0 to disable this check.")
+@app_commands.checks.has_permissions(manage_guild=True)
+async def verify_set_min_age(
+    interaction: discord.Interaction, days: app_commands.Range[int, 0, 3650]
+):
+    await settings_manager.update(interaction.guild_id, {"min_account_age_days": days})
+
+    if days == 0:
+        await interaction.response.send_message(
+            "Minimum account age check disabled.", ephemeral=True
+        )
+    else:
+        await interaction.response.send_message(
+            f"Users must now have a Discord account at least **{days} day(s)** old to verify.",
+            ephemeral=True,
+        )
+
+
+@bot.tree.command(
     name="verify-post", description="Post the verification message in this channel"
 )
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_post(interaction: discord.Interaction):
-    settings = await settings_manager.get(interaction.guild_id)
+    guild_settings = await settings_manager.get(interaction.guild_id)
 
-    if settings.get("verified_role_id") is None:
+    if guild_settings.get("verified_role_id") is None:
         await interaction.response.send_message(
             "Set a Verified role first with `/verify-set-role`.", ephemeral=True
         )
         return
 
-    module = get_module(settings["method"])
-    view = module.build_entry_view(settings)
+    module = get_module(guild_settings["method"])
+    view = module.build_entry_view(guild_settings)
 
     embed = discord.Embed(
         title="Verification required",
-        description=settings.get("welcome_message", "Click below to verify."),
+        description=guild_settings.get("welcome_message", "Click below to verify."),
     )
-    embed.set_footer(text=f"Method: {MODULES[settings['method']].display_name}")
+    embed.set_footer(text=f"Method: {MODULES[guild_settings['method']].display_name}")
+
+    min_age_days = guild_settings.get("min_account_age_days", 0)
+    if min_age_days > 0:
+        embed.add_field(
+            name="Requirement",
+            value=f"Your Discord account must be at least {min_age_days} day(s) old.",
+            inline=False,
+        )
 
     await interaction.channel.send(embed=embed, view=view)
     await interaction.response.send_message(
