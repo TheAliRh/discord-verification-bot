@@ -5,12 +5,16 @@ Handles all reads/writes of per-guild verification settings.
 
 Design goals:
 - A guild with no row in the DB behaves exactly like DEFAULT_SETTINGS (zero setup required).
-- Settings is cached in memory per guild so hot paths (on_member_join, button clicks)
+- Settings are cached in memory per guild so hot paths (on_member_join, button clicks)
   never wait on a DB round-trip.
 - Partial updates (e.g. "just change the method") merge into existing settings
   instead of overwriting the whole thing.
-- Deep-merge with defaults means new settings keys you add later automatically
+- Deep-merge with defaults means new setting keys you add later automatically
   show up for existing guilds without a migration.
+
+Note: the underlying SQLite table/column names (guild_config / config_json)
+are kept as-is even after this rename, since changing them would require a
+data migration for anyone who already has a populated bot.db.
 """
 
 import json
@@ -45,9 +49,9 @@ class SettingsManager:
         self._db = await aiosqlite.connect(DB_PATH)
         await self._db.execute(
             """
-            CREATE TABLE IF NOT EXISTS guild_settings (
+            CREATE TABLE IF NOT EXISTS guild_config (
                 guild_id INTEGER PRIMARY KEY,
-                settings_json TEXT NOT NULL
+                config_json TEXT NOT NULL
             )
             """
         )
@@ -66,7 +70,7 @@ class SettingsManager:
             return self._cache[guild_id]
 
         async with self._db.execute(
-            "SELECT settings_json FROM guild_settings WHERE guild_id = ?", (guild_id,)
+            "SELECT config_json FROM guild_config WHERE guild_id = ?", (guild_id,)
         ) as cursor:
             row = await cursor.fetchone()
 
@@ -84,16 +88,16 @@ class SettingsManager:
     async def update(self, guild_id: int, updates: dict) -> dict:
         """
         Merge `updates` into this guild's existing settings and persist it.
-        Example: await settings.update(guild_id, {"method": "captcha"})
+        Example: await settings_manager.update(guild_id, {"method": "captcha"})
         """
         current = await self.get(guild_id)
         new_settings = _deep_merge(current, updates)
 
         await self._db.execute(
             """
-            INSERT INTO guild_settings (guild_id, settings_json)
+            INSERT INTO guild_config (guild_id, config_json)
             VALUES (?, ?)
-            ON CONFLICT(guild_id) DO UPDATE SET settings_json = excluded.settings_json
+            ON CONFLICT(guild_id) DO UPDATE SET config_json = excluded.config_json
             """,
             (guild_id, json.dumps(new_settings)),
         )
@@ -105,7 +109,7 @@ class SettingsManager:
     async def reset(self, guild_id: int) -> dict:
         """Delete a guild's stored settings, reverting it to defaults."""
         await self._db.execute(
-            "DELETE FROM guild_settings WHERE guild_id = ?", (guild_id,)
+            "DELETE FROM guild_config WHERE guild_id = ?", (guild_id,)
         )
         await self._db.commit()
         self._cache.pop(guild_id, None)
