@@ -23,6 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from core.base import VerificationModule
 from core import service
+from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
 
 FONT_PATH = Path(__file__).parent.parent / "assets" / "fonts" / "DejaVuSans-Bold.ttf"
@@ -139,9 +140,12 @@ class ImageCaptchaButton(discord.ui.Button):
     async def callback(self, interaction: discord.Interaction):
         from settings import settings_manager
 
-        settings = await settings_manager.get(interaction.guild_id)
-        captcha_settings = settings["method_settings"].get("captcha", {})
+        guild_settings = await settings_manager.get(interaction.guild_id)
 
+        if not await passes_prechecks(interaction, guild_settings):
+            return
+
+        captcha_settings = guild_settings["method_settings"].get("captcha", {})
         code = generate_code(
             captcha_settings.get("length", 6),
             captcha_settings.get("type", "alphanumeric"),
@@ -154,7 +158,7 @@ class ImageCaptchaButton(discord.ui.Button):
         await interaction.response.send_message(
             "Type the code shown in the image below.",
             file=file,
-            view=EnterCodeView(captcha_settings),
+            view=EnterCodeView(guild_settings),
             ephemeral=True,
         )
 
