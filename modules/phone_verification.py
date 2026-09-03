@@ -16,6 +16,7 @@ instead of a silent failure.
 """
 
 import re
+import logging
 import discord
 from core.base import VerificationModule
 from core import service
@@ -23,6 +24,8 @@ from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
 from core.rate_limiter import check_and_record
 from core.sms_sender import send_verification_sms, SMSNotConfigured, SMSSendError
+
+logger = logging.getLogger(__name__)
 
 # E.164 format: + followed by 8-15 digits, no spaces/dashes/parens.
 # Deliberately strict - Twilio rejects malformed numbers anyway, but this
@@ -105,6 +108,10 @@ class PhoneNumberModal(discord.ui.Modal, title="Verify by Phone"):
         try:
             await send_verification_sms(number, code, interaction.guild.name)
         except SMSNotConfigured:
+            logger.warning(
+                "Phone verification attempted but Twilio is not configured (guild %s)",
+                interaction.guild_id,
+            )
             await interaction.response.send_message(
                 "Phone verification isn't fully set up on this server's bot yet. "
                 "Ask an admin to configure Twilio, or try a different verification method.",
@@ -112,6 +119,11 @@ class PhoneNumberModal(discord.ui.Modal, title="Verify by Phone"):
             )
             return
         except SMSSendError:
+            logger.warning(
+                "Twilio rejected an SMS send for user %s in guild %s",
+                interaction.user.id,
+                interaction.guild_id,
+            )
             await interaction.response.send_message(
                 "Couldn't send a text to that number. Double-check it's correct, "
                 "or try a different verification method.",
@@ -119,11 +131,21 @@ class PhoneNumberModal(discord.ui.Modal, title="Verify by Phone"):
             )
             return
         except Exception:
+            logger.exception(
+                "Unexpected error sending verification SMS in guild %s",
+                interaction.guild_id,
+            )
             await interaction.response.send_message(
                 "Something went wrong sending the code. Please try again in a moment.",
                 ephemeral=True,
             )
             return
+
+        logger.info(
+            "Sent verification SMS for user %s in guild %s",
+            interaction.user.id,
+            interaction.guild_id,
+        )
 
         await interaction.response.send_message(
             f"Sent a code to {number}. Click below once you have it.",
