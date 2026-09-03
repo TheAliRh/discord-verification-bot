@@ -18,6 +18,7 @@ from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
+from core.rate_limiter import check_and_record
 from core.email_sender import send_verification_email, EmailNotConfigured
 
 
@@ -85,6 +86,17 @@ class EmailAddressModal(discord.ui.Modal, title="Verify by Email"):
             return
 
         method_settings = self.settings["method_settings"].get("email", {})
+
+        allowed, retry_after = check_and_record(
+            f"email:{interaction.user.id}", method_settings.get("cooldown_seconds", 60)
+        )
+        if not allowed:
+            await interaction.response.send_message(
+                f"Please wait {int(retry_after) + 1} more second(s) before requesting another code.",
+                ephemeral=True,
+            )
+            return
+
         code = generate_code(method_settings.get("length", 6), "alphanumeric")
         store_challenge(interaction.user.id, code)
 
