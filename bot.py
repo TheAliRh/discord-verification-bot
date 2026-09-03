@@ -47,6 +47,34 @@ async def on_ready():
     print("Settings layer initialized. Persistent views registered.")
 
 
+@bot.tree.error
+async def on_app_command_error(
+    interaction: discord.Interaction, error: app_commands.AppCommandError
+):
+    if isinstance(error, app_commands.MissingPermissions):
+        await interaction.response.send_message(
+            "You need the **Manage Server** permission to use this command.",
+            ephemeral=True,
+        )
+        return
+
+    if isinstance(error, app_commands.NoPrivateMessage):
+        await interaction.response.send_message(
+            "This command only works inside a server, not in DMs.", ephemeral=True
+        )
+        return
+
+    # Anything else is unexpected - log it so it's not silently lost, and
+    # give the user a generic message instead of Discord's raw error screen.
+    command_name = interaction.command.name if interaction.command else "unknown"
+    print(f"Unhandled error in /{command_name}: {error!r}")
+
+    if not interaction.response.is_done():
+        await interaction.response.send_message(
+            "Something went wrong running that command.", ephemeral=True
+        )
+
+
 @bot.event
 async def on_member_join(member: discord.Member):
     guild_settings = await settings_manager.get(member.guild.id)
@@ -103,6 +131,7 @@ verify_group = app_commands.Group(name="verify", description="Verification setup
 @verify_group.command(
     name="setup", description="Interactive setup wizard for verification"
 )
+@app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_setup(interaction: discord.Interaction):
     current_settings = await settings_manager.get(interaction.guild_id)
@@ -118,6 +147,8 @@ bot.tree.add_command(verify_group)
 @bot.tree.command(
     name="verify-view", description="View this server's verification settings"
 )
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
 async def verify_view(interaction: discord.Interaction):
     guild_settings = await settings_manager.get(interaction.guild_id)
     pretty = json.dumps(guild_settings, indent=2)
@@ -142,6 +173,7 @@ async def verify_view(interaction: discord.Interaction):
         app_commands.Choice(name="OAuth2", value="oauth2"),
     ]
 )
+@app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_method(
     interaction: discord.Interaction, method: app_commands.Choice[str]
@@ -158,6 +190,7 @@ async def verify_set_method(
     name="verify-set-role",
     description="Set the role given to users who pass verification",
 )
+@app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
     if role >= interaction.guild.me.top_role:
@@ -178,6 +211,7 @@ async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
     name="verify-set-unverified-role",
     description="Set the role new members get until they pass verification",
 )
+@app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_unverified_role(
     interaction: discord.Interaction, role: discord.Role
@@ -204,6 +238,7 @@ async def verify_set_unverified_role(
     description="Require a minimum Discord account age (in days) before someone can verify",
 )
 @app_commands.describe(days="Minimum account age in days. Use 0 to disable this check.")
+@app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_min_age(
     interaction: discord.Interaction, days: app_commands.Range[int, 0, 3650]
@@ -224,6 +259,7 @@ async def verify_set_min_age(
 @bot.tree.command(
     name="verify-post", description="Post the verification message in this channel"
 )
+@app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_post(interaction: discord.Interaction):
     guild_settings = await settings_manager.get(interaction.guild_id)
@@ -261,6 +297,7 @@ async def verify_post(interaction: discord.Interaction):
     name="verify-reset",
     description="Reset this server's verification settings to defaults",
 )
+@app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_reset(interaction: discord.Interaction):
     await settings_manager.reset(interaction.guild_id)
