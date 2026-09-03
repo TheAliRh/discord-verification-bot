@@ -21,6 +21,7 @@ from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
+from core.rate_limiter import check_and_record
 from core.sms_sender import send_verification_sms, SMSNotConfigured, SMSSendError
 
 # E.164 format: + followed by 8-15 digits, no spaces/dashes/parens.
@@ -87,6 +88,17 @@ class PhoneNumberModal(discord.ui.Modal, title="Verify by Phone"):
             return
 
         method_settings = self.settings["method_settings"].get("phone", {})
+
+        allowed, retry_after = check_and_record(
+            f"phone:{interaction.user.id}", method_settings.get("cooldown_seconds", 60)
+        )
+        if not allowed:
+            await interaction.response.send_message(
+                f"Please wait {int(retry_after) + 1} more second(s) before requesting another code.",
+                ephemeral=True,
+            )
+            return
+
         code = generate_code(method_settings.get("length", 6), "numeric")
         store_challenge(interaction.user.id, code)
 
