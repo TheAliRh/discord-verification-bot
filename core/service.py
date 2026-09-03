@@ -14,7 +14,10 @@ there at all) share identical behavior instead of two parallel
 implementations that could quietly drift apart.
 """
 
+import logging
 import discord
+
+logger = logging.getLogger(__name__)
 
 
 async def _log(guild: discord.Guild, settings: dict, message: str):
@@ -27,7 +30,23 @@ async def _log(guild: discord.Guild, settings: dict, message: str):
     try:
         await channel.send(message)
     except discord.Forbidden:
-        pass  # missing permission to post in log channel - fail silently, don't crash verification
+        # Missing permission to post in the configured log channel - don't
+        # crash verification over it, but don't lose the event silently either.
+        logger.warning(
+            "Missing permission to post in log channel %s (guild %s)",
+            log_channel_id,
+            guild.id,
+        )
+
+
+async def log_event(guild: discord.Guild, settings: dict, message: str):
+    """
+    Public entry point for logging from outside this module - e.g. bot.py's
+    on_member_join, which needs to record a join or a role-assignment
+    failure without going through grant_verified/deny_verified (nothing
+    was verified yet at that point).
+    """
+    await _log(guild, settings, message)
 
 
 async def _assign_verified_role(
@@ -42,6 +61,9 @@ async def _assign_verified_role(
     unverified_role_id = settings.get("unverified_role_id")
 
     if verified_role_id is None:
+        logger.info(
+            "Guild %s has no verified_role_id configured; denying %s", guild.id, member
+        )
         return (
             False,
             "This server hasn't set a Verified role yet. Ask an admin to run /verify-set-role.",
@@ -49,6 +71,12 @@ async def _assign_verified_role(
 
     verified_role = guild.get_role(verified_role_id)
     if verified_role is None:
+        logger.warning(
+            "Verified role %s not found in guild %s for %s",
+            verified_role_id,
+            guild.id,
+            member,
+        )
         await _log(
             guild,
             settings,
@@ -66,12 +94,19 @@ async def _assign_verified_role(
             if unverified_role and unverified_role in member.roles:
                 await member.remove_roles(unverified_role, reason="Passed verification")
     except discord.Forbidden:
+        logger.warning(
+            "Missing permission to assign role %s to %s in guild %s",
+            verified_role_id,
+            member,
+            guild.id,
+        )
         await _log(guild, settings, f"⚠️ Missing permission to assign role to {member}.")
         return False, (
             "I don't have permission to assign that role. Ask an admin to move my bot's role "
             "above the Verified role in Server Settings > Roles."
         )
 
+    logger.info("%s (%s) passed verification in guild %s", member, member.id, guild.id)
     await _log(guild, settings, f"✅ {member} ({member.id}) passed verification.")
     return True, "You're verified! Welcome to the server."
 
