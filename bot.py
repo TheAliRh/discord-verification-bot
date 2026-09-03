@@ -9,6 +9,7 @@ from settings import settings_manager
 from modules import get_module, all_persistent_views, MODULES
 from ui import SetupView
 from web import start_server
+from core import service
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -44,6 +45,56 @@ async def on_ready():
     await bot.tree.sync()
     print(f"Logged in as {bot.user} (id: {bot.user.id})")
     print("Settings layer initialized. Persistent views registered.")
+
+
+@bot.event
+async def on_member_join(member: discord.Member):
+    guild_settings = await settings_manager.get(member.guild.id)
+
+    if not guild_settings.get("enabled", True):
+        return  # verification turned off entirely for this guild
+
+    unverified_role_id = guild_settings.get("unverified_role_id")
+    if unverified_role_id:
+        role = member.guild.get_role(unverified_role_id)
+        if role is None:
+            await service.log_event(
+                member.guild,
+                guild_settings,
+                f"⚠️ Configured Unverified role {unverified_role_id} not found for new member {member}.",
+            )
+        else:
+            try:
+                await member.add_roles(role, reason="New member - pending verification")
+            except discord.Forbidden:
+                await service.log_event(
+                    member.guild,
+                    guild_settings,
+                    f"⚠️ Missing permission to assign Unverified role to {member} on join.",
+                )
+
+    verify_channel_id = guild_settings.get("verify_channel_id")
+    channel_mention = (
+        f"<#{verify_channel_id}>" if verify_channel_id else "the verification channel"
+    )
+
+    try:
+        await member.send(
+            f"Welcome to **{member.guild.name}**! Head to {channel_mention} to verify and get full access."
+        )
+    except discord.Forbidden:
+        pass  # DMs closed - not fatal, they can still find the verify channel if it's visible to Unverified
+
+    await service.log_event(
+        member.guild,
+        guild_settings,
+        f"👋 {member} ({member.id}) joined."
+        + (
+            " Unverified role assigned."
+            if unverified_role_id
+            else " No Unverified role configured."
+        ),
+    )
 
 
 verify_group = app_commands.Group(name="verify", description="Verification setup")
@@ -120,6 +171,31 @@ async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
     await settings_manager.update(interaction.guild_id, {"verified_role_id": role.id})
     await interaction.response.send_message(
         f"Verified role set to {role.mention}.", ephemeral=True
+    )
+
+
+@bot.tree.command(
+    name="verify-set-unverified-role",
+    description="Set the role new members get until they pass verification",
+)
+@app_commands.checks.has_permissions(manage_guild=True)
+async def verify_set_unverified_role(
+    interaction: discord.Interaction, role: discord.Role
+):
+    if role >= interaction.guild.me.top_role:
+        await interaction.response.send_message(
+            "⚠️ My bot's role is not above that role, so I won't be able to assign it. "
+            "Move my role higher in Server Settings > Roles, then try again.",
+            ephemeral=True,
+        )
+        return
+
+    await settings_manager.update(interaction.guild_id, {"unverified_role_id": role.id})
+    await interaction.response.send_message(
+        f"Unverified role set to {role.mention}. New members will get this automatically on join.\n"
+        "Remember to also deny **View Channel** for this role on any channels you want hidden "
+        "until verification - assigning the role alone doesn't hide anything by itself.",
+        ephemeral=True,
     )
 
 
