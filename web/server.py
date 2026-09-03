@@ -15,12 +15,16 @@ Railway, etc.) and OAUTH_REDIRECT_URI/the Discord app's redirect settings
 need to point at that public URL instead.
 """
 
+import logging
+
 from aiohttp import web
 
 from settings import settings_manager
 from core.oauth_state import consume_state
 from core.discord_oauth import exchange_code_for_token, fetch_discord_user
 from core import service
+
+logger = logging.getLogger(__name__)
 
 
 def _html(title: str, message: str, status: int = 200) -> web.Response:
@@ -64,6 +68,7 @@ async def oauth_callback(request: web.Request) -> web.Response:
         access_token = await exchange_code_for_token(code)
         discord_user = await fetch_discord_user(access_token)
     except Exception:
+        logger.exception("OAuth2 token exchange or identity fetch failed")
         return _html(
             "Something went wrong",
             "Couldn't complete verification with Discord. Please try again.",
@@ -73,6 +78,12 @@ async def oauth_callback(request: web.Request) -> web.Response:
     # Confirm the account that actually authorized matches who clicked Verify -
     # prevents someone else's completed OAuth flow from verifying the wrong user.
     if str(discord_user.get("id")) != str(state["user_id"]):
+        logger.warning(
+            "OAuth2 identity mismatch: expected user %s, got %s (guild %s)",
+            state["user_id"],
+            discord_user.get("id"),
+            state["guild_id"],
+        )
         return _html(
             "Account mismatch",
             "You authorized with a different Discord account than the one that started verification.",
@@ -84,6 +95,12 @@ async def oauth_callback(request: web.Request) -> web.Response:
         bot, state["guild_id"], state["user_id"], guild_settings
     )
 
+    logger.info(
+        "OAuth2 callback completed for user %s in guild %s: ok=%s",
+        state["user_id"],
+        state["guild_id"],
+        ok,
+    )
     title = "You're verified! ✅" if ok else "Verification failed"
     return _html(title, message, status=200 if ok else 400)
 
