@@ -9,3 +9,6 @@ __pycache__/
 
 # Database files
 *.db
+
+# Logs
+*.log

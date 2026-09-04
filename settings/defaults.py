@@ -23,5 +23,7 @@ DEFAULT_SETTINGS = {
     "method_settings": {
         "captcha": {"length": 6, "type": "alphanumeric"},  # "alphanumeric" | "numeric"
         "math": {"difficulty": "easy"},  # "easy" | "medium" | "hard"
+        "email": {"length": 6, "cooldown_seconds": 60},
+        "phone": {"length": 6, "cooldown_seconds": 60},
     },
 }

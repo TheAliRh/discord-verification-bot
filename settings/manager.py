@@ -19,10 +19,13 @@ data migration for anyone who already has a populated bot.db.
 
 import json
 import copy
+import logging
 import aiosqlite
 from pathlib import Path
 
 from .defaults import DEFAULT_SETTINGS
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = Path(__file__).parent.parent / "database" / "bot.db"
 
@@ -56,10 +59,12 @@ class SettingsManager:
             """
         )
         await self._db.commit()
+        logger.info("Settings database ready at %s", DB_PATH)
 
     async def close(self):
         if self._db:
             await self._db.close()
+            logger.debug("Settings database connection closed")
 
     async def get(self, guild_id: int) -> dict:
         """
@@ -67,6 +72,7 @@ class SettingsManager:
         Never raises - always returns a usable dict, even for a brand-new guild.
         """
         if guild_id in self._cache:
+            logger.debug("Settings cache hit for guild %s", guild_id)
             return self._cache[guild_id]
 
         async with self._db.execute(
@@ -75,12 +81,14 @@ class SettingsManager:
             row = await cursor.fetchone()
 
         if row is None:
+            logger.debug("No stored settings for guild %s - using defaults", guild_id)
             settings = copy.deepcopy(DEFAULT_SETTINGS)
         else:
             stored = json.loads(row[0])
             # deep-merge so any new default keys added after this guild first
             # saved settings still show up, without needing a migration
             settings = _deep_merge(DEFAULT_SETTINGS, stored)
+            logger.debug("Loaded stored settings for guild %s from database", guild_id)
 
         self._cache[guild_id] = settings
         return settings
@@ -104,6 +112,7 @@ class SettingsManager:
         await self._db.commit()
 
         self._cache[guild_id] = new_settings
+        logger.info("Settings updated for guild %s: %s", guild_id, list(updates.keys()))
         return new_settings
 
     async def reset(self, guild_id: int) -> dict:
@@ -113,6 +122,7 @@ class SettingsManager:
         )
         await self._db.commit()
         self._cache.pop(guild_id, None)
+        logger.info("Settings reset to defaults for guild %s", guild_id)
         return copy.deepcopy(DEFAULT_SETTINGS)
 
 

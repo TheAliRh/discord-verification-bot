@@ -13,12 +13,16 @@ Requires SMTP_HOST / SMTP_USERNAME / SMTP_PASSWORD in .env. If unset, users
 get a clear "not available" message instead of a silent failure.
 """
 
+import logging
 import discord
 from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
+from core.rate_limiter import check_and_record
 from core.email_sender import send_verification_email, EmailNotConfigured
+
+logger = logging.getLogger(__name__)
 
 
 def _looks_like_email(address: str) -> bool:
@@ -85,12 +89,27 @@ class EmailAddressModal(discord.ui.Modal, title="Verify by Email"):
             return
 
         method_settings = self.settings["method_settings"].get("email", {})
+
+        allowed, retry_after = check_and_record(
+            f"email:{interaction.user.id}", method_settings.get("cooldown_seconds", 60)
+        )
+        if not allowed:
+            await interaction.response.send_message(
+                f"Please wait {int(retry_after) + 1} more second(s) before requesting another code.",
+                ephemeral=True,
+            )
+            return
+
         code = generate_code(method_settings.get("length", 6), "alphanumeric")
         store_challenge(interaction.user.id, code)
 
         try:
             await send_verification_email(address, code, interaction.guild.name)
         except EmailNotConfigured:
+            logger.warning(
+                "Email verification attempted but SMTP is not configured (guild %s)",
+                interaction.guild_id,
+            )
             await interaction.response.send_message(
                 "Email verification isn't fully set up on this server's bot yet. "
                 "Ask an admin to configure SMTP, or try a different verification method.",
@@ -98,11 +117,21 @@ class EmailAddressModal(discord.ui.Modal, title="Verify by Email"):
             )
             return
         except Exception:
+            logger.exception(
+                "Failed to send verification email to a user in guild %s",
+                interaction.guild_id,
+            )
             await interaction.response.send_message(
                 "Something went wrong sending the email. Please try again in a moment.",
                 ephemeral=True,
             )
             return
+
+        logger.info(
+            "Sent verification email for user %s in guild %s",
+            interaction.user.id,
+            interaction.guild_id,
+        )
 
         await interaction.response.send_message(
             f"Sent a code to {address}. Click below once you have it.",
