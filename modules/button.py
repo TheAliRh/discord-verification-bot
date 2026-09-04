@@ -9,6 +9,7 @@ import discord
 from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
+from core.ui_base import BaseView
 
 
 class VerifyButton(discord.ui.Button):
@@ -35,7 +36,7 @@ class VerifyButton(discord.ui.Button):
         await service.grant_verified(interaction, guild_settings)
 
 
-class ButtonVerificationView(discord.ui.View):
+class ButtonVerificationView(BaseView):
     def __init__(self):
         super().__init__(timeout=None)  # timeout=None -> persists across restarts
         self.add_item(VerifyButton())
