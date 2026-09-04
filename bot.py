@@ -30,8 +30,20 @@ class VerifyBot(commands.Bot):
         # gateway - the correct place to start a background service like
         # the OAuth2 callback server, rather than doing it in on_ready
         # (which can fire more than once on reconnects).
-        self.web_runner = await start_server(self, port=OAUTH_SERVER_PORT)
-        logger.info("OAuth2 callback server listening on port %s", OAUTH_SERVER_PORT)
+        try:
+            self.web_runner = await start_server(self, port=OAUTH_SERVER_PORT)
+            logger.info(
+                "OAuth2 callback server listening on port %s", OAUTH_SERVER_PORT
+            )
+        except OSError as e:
+            logger.error(
+                "Could not start the OAuth2 callback server on port %s (%s). "
+                "Is another instance of this bot already running, or is that port in use "
+                "by something else? OAuth2 verification will not work until this is fixed, "
+                "but the rest of the bot will continue starting up.",
+                OAUTH_SERVER_PORT,
+                e,
+            )
 
 
 bot = VerifyBot(command_prefix="!", intents=intents)
@@ -39,7 +51,15 @@ bot = VerifyBot(command_prefix="!", intents=intents)
 
 @bot.event
 async def on_ready():
-    await settings_manager.init()
+    try:
+        await settings_manager.init()
+    except Exception:
+        logger.critical(
+            "Failed to initialize the settings database (data/bot.db). "
+            "Check that the 'data/' folder exists and is writable. The bot cannot function without this.",
+            exc_info=True,
+        )
+        raise  # nothing else can work without settings - fail loudly and stop
 
     # Re-register every module's persistent view so buttons on old messages
     # (sent before this restart) still work. Safe to call every startup -
