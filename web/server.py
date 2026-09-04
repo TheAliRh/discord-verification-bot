@@ -53,10 +53,12 @@ async def oauth_callback(request: web.Request) -> web.Response:
     code = request.query.get("code")
     state_token = request.query.get("state")
     if not code or not state_token:
+        logger.warning("OAuth2 callback hit with missing code/state parameter")
         return _html("Invalid request", "Missing code or state parameter.", status=400)
 
     state = consume_state(state_token)
     if state is None:
+        logger.warning("OAuth2 callback with an invalid or expired state token")
         return _html(
             "Link expired",
             "This verification link expired or was already used. "
