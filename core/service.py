@@ -146,6 +146,13 @@ async def deny_verified(
     interaction: discord.Interaction, settings: dict, reason: str = "Incorrect answer."
 ):
     """Call when a user fails a verification attempt (e.g. wrong captcha code)."""
+    logger.info(
+        "%s (%s) failed verification in guild %s: %s",
+        interaction.user,
+        interaction.user.id,
+        interaction.guild_id,
+        reason,
+    )
     await interaction.response.send_message(
         f"❌ {reason} Click Verify to try again.", ephemeral=True
     )
