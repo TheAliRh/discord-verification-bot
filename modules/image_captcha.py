@@ -25,6 +25,7 @@ from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
+from core.ui_base import BaseView, BaseModal
 
 FONT_PATH = Path(__file__).parent.parent / "assets" / "fonts" / "DejaVuSans-Bold.ttf"
 _IMAGE_SIZE = (220, 90)
@@ -90,7 +91,7 @@ def render_captcha_image(code: str) -> io.BytesIO:
     return buffer
 
 
-class ImageCaptchaModal(discord.ui.Modal, title="Enter the code from the image"):
+class ImageCaptchaModal(BaseModal, title="Enter the code from the image"):
     answer = discord.ui.TextInput(
         label="Code", placeholder="e.g. AB3XZ9", max_length=10
     )
@@ -116,7 +117,7 @@ class EnterCodeButton(discord.ui.Button):
         await interaction.response.send_modal(ImageCaptchaModal(self.settings))
 
 
-class EnterCodeView(discord.ui.View):
+class EnterCodeView(BaseView):
     """
     Short-lived, non-persistent view attached only to the ephemeral message
     containing the captcha image. It doesn't need to survive a bot restart -
@@ -163,7 +164,7 @@ class ImageCaptchaButton(discord.ui.Button):
         )
 
 
-class ImageCaptchaVerificationView(discord.ui.View):
+class ImageCaptchaVerificationView(BaseView):
     def __init__(self):
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(ImageCaptchaButton())
