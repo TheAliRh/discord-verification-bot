@@ -11,6 +11,7 @@ in a single write when "Save Setup" is pressed.
 import discord
 from settings import settings_manager
 from modules import MODULES
+from core.ui_base import BaseView, BaseModal
 
 
 def _method_options() -> list[discord.SelectOption]:
@@ -24,7 +25,7 @@ def _method_options() -> list[discord.SelectOption]:
     ]
 
 
-class WelcomeMessageModal(discord.ui.Modal, title="Customize Welcome Message"):
+class WelcomeMessageModal(BaseModal, title="Customize Welcome Message"):
     message = discord.ui.TextInput(
         label="Message shown above the Verify button",
         style=discord.TextStyle.paragraph,
@@ -165,7 +166,7 @@ class CancelSetupButton(discord.ui.Button):
         )
 
 
-class SetupView(discord.ui.View):
+class SetupView(BaseView):
     """
     Not persistent (timeout=300) - unlike the verification message itself,
     the setup wizard only needs to survive one admin's active session.
