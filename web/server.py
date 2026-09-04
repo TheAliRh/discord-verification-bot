@@ -93,9 +93,23 @@ async def oauth_callback(request: web.Request) -> web.Response:
         )
 
     guild_settings = await settings_manager.get(state["guild_id"])
-    ok, message = await service.grant_verified_by_id(
-        bot, state["guild_id"], state["user_id"], guild_settings
-    )
+
+    try:
+        ok, message = await service.grant_verified_by_id(
+            bot, state["guild_id"], state["user_id"], guild_settings
+        )
+    except Exception:
+        logger.exception(
+            "Unexpected error granting verification for user %s in guild %s",
+            state["user_id"],
+            state["guild_id"],
+        )
+        return _html(
+            "Something went wrong",
+            "Verification with Discord succeeded, but something failed while granting your role. "
+            "Please contact a server admin.",
+            status=500,
+        )
 
     logger.info(
         "OAuth2 callback completed for user %s in guild %s: ok=%s",
