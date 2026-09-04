@@ -21,9 +21,10 @@ from core.base import VerificationModule
 from core.prechecks import passes_prechecks
 from core.oauth_state import create_state
 from core.discord_oauth import build_authorize_url, is_configured, OAuthNotConfigured
+from core.ui_base import BaseView
 
 
-class ContinueWithDiscordView(discord.ui.View):
+class ContinueWithDiscordView(BaseView):
     def __init__(self, authorize_url: str):
         super().__init__(timeout=600)  # matches the state token TTL
         self.add_item(
@@ -78,7 +79,7 @@ class OAuth2VerifyButton(discord.ui.Button):
         )
 
 
-class OAuth2VerificationView(discord.ui.View):
+class OAuth2VerificationView(BaseView):
     def __init__(self):
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(OAuth2VerifyButton())
