@@ -9,6 +9,9 @@ messages at your SMTP/Twilio account's expense.
 """
 
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 _LAST_ACTION: dict[str, float] = {}  # key -> timestamp of the last allowed action
 
@@ -28,7 +31,9 @@ def check_and_record(key: str, cooldown_seconds: int) -> tuple[bool, float]:
     if last is not None:
         elapsed = now - last
         if elapsed < cooldown_seconds:
-            return False, cooldown_seconds - elapsed
+            retry_after = cooldown_seconds - elapsed
+            logger.info("Rate limit hit for '%s' - %.1fs remaining", key, retry_after)
+            return False, retry_after
 
     _LAST_ACTION[key] = now
     return True, 0.0
