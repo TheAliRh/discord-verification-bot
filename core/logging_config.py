@@ -27,8 +27,6 @@ def setup_logging():
     level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
 
-    LOG_DIR.mkdir(parents=True, exist_ok=True)
-
     formatter = logging.Formatter(
         fmt="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
         datefmt="%Y-%m-%d %H:%M:%S",
@@ -37,18 +35,28 @@ def setup_logging():
     console_handler = logging.StreamHandler()
     console_handler.setFormatter(formatter)
 
-    # Rotates at 5MB, keeps 3 old copies - bounded disk usage instead of a
-    # log file that grows forever on a bot left running for months.
-    file_handler = RotatingFileHandler(
-        LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
-    )
-    file_handler.setFormatter(formatter)
-
     root_logger = logging.getLogger()
     root_logger.setLevel(level)
     root_logger.handlers.clear()  # avoid duplicate handlers if this ever runs twice in one process
     root_logger.addHandler(console_handler)
-    root_logger.addHandler(file_handler)
+
+    # File logging is a nice-to-have, not a requirement - if the logs/
+    # directory can't be created (read-only disk, permissions issue), fall
+    # back to console-only rather than crashing the whole bot before any
+    # error-reporting infrastructure even exists to catch it.
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        file_handler = RotatingFileHandler(
+            LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        file_handler.setFormatter(formatter)
+        root_logger.addHandler(file_handler)
+    except OSError as e:
+        root_logger.warning(
+            "Could not set up file logging at %s (%s) - continuing with console only",
+            LOG_FILE,
+            e,
+        )
 
     # discord.py's own logger is very chatty at INFO/DEBUG (gateway
     # heartbeats, session events) - keep it quiet unless the whole bot

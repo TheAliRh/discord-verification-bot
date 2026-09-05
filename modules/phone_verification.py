@@ -24,6 +24,7 @@ from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
 from core.rate_limiter import check_and_record
 from core.sms_sender import send_verification_sms, SMSNotConfigured, SMSSendError
+from core.ui_base import BaseView, BaseModal
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def _looks_like_phone_number(number: str) -> bool:
     return bool(_E164_PATTERN.match(number.strip()))
 
 
-class EnterPhoneCodeModal(discord.ui.Modal, title="Enter the code we texted you"):
+class EnterPhoneCodeModal(BaseModal, title="Enter the code we texted you"):
     answer = discord.ui.TextInput(
         label="Code", placeholder="e.g. AB3XZ9", max_length=10
     )
@@ -63,13 +64,13 @@ class EnterPhoneCodeButton(discord.ui.Button):
         await interaction.response.send_modal(EnterPhoneCodeModal(self.settings))
 
 
-class EnterPhoneCodeView(discord.ui.View):
+class EnterPhoneCodeView(BaseView):
     def __init__(self, settings: dict):
         super().__init__(timeout=300)
         self.add_item(EnterPhoneCodeButton(settings))
 
 
-class PhoneNumberModal(discord.ui.Modal, title="Verify by Phone"):
+class PhoneNumberModal(BaseModal, title="Verify by Phone"):
     phone_number = discord.ui.TextInput(
         label="Your phone number (with country code)",
         placeholder="+14155551234",
@@ -174,7 +175,7 @@ class PhoneVerifyButton(discord.ui.Button):
         await interaction.response.send_modal(PhoneNumberModal(guild_settings))
 
 
-class PhoneVerificationView(discord.ui.View):
+class PhoneVerificationView(BaseView):
     def __init__(self):
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(PhoneVerifyButton())

@@ -15,9 +15,10 @@ from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
+from core.ui_base import BaseView, BaseModal
 
 
-class CaptchaModal(discord.ui.Modal, title="Verification Captcha"):
+class CaptchaModal(BaseModal, title="Verification Captcha"):
     def __init__(self, expected_code: str, settings: dict):
         super().__init__()
         self.settings = settings
@@ -64,7 +65,7 @@ class CaptchaButton(discord.ui.Button):
         await interaction.response.send_modal(CaptchaModal(code, guild_settings))
 
 
-class CaptchaVerificationView(discord.ui.View):
+class CaptchaVerificationView(BaseView):
     def __init__(self):
         super().__init__(timeout=None)
         self.add_item(CaptchaButton())

@@ -21,6 +21,7 @@ from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
 from core.rate_limiter import check_and_record
 from core.email_sender import send_verification_email, EmailNotConfigured
+from core.ui_base import BaseView, BaseModal
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ def _looks_like_email(address: str) -> bool:
     return all(part for part in domain_parts) and len(domain_parts) >= 2
 
 
-class EnterEmailCodeModal(discord.ui.Modal, title="Enter the code we emailed you"):
+class EnterEmailCodeModal(BaseModal, title="Enter the code we emailed you"):
     answer = discord.ui.TextInput(
         label="Code", placeholder="e.g. AB3XZ9", max_length=10
     )
@@ -63,13 +64,13 @@ class EnterEmailCodeButton(discord.ui.Button):
         await interaction.response.send_modal(EnterEmailCodeModal(self.settings))
 
 
-class EnterEmailCodeView(discord.ui.View):
+class EnterEmailCodeView(BaseView):
     def __init__(self, settings: dict):
         super().__init__(timeout=300)
         self.add_item(EnterEmailCodeButton(settings))
 
 
-class EmailAddressModal(discord.ui.Modal, title="Verify by Email"):
+class EmailAddressModal(BaseModal, title="Verify by Email"):
     email = discord.ui.TextInput(
         label="Your email address", placeholder="you@example.com"
     )
@@ -160,7 +161,7 @@ class EmailVerifyButton(discord.ui.Button):
         await interaction.response.send_modal(EmailAddressModal(guild_settings))
 
 
-class EmailVerificationView(discord.ui.View):
+class EmailVerificationView(BaseView):
     def __init__(self):
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(EmailVerifyButton())
