@@ -23,7 +23,10 @@ class VerifyButton(discord.ui.Button):
             custom_id="verify:button:click",
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this button only ever appears on a message inside a guild
+
         # Settings are looked up fresh at click-time, not baked into the view,
         # so one persistent view definition works correctly for every guild.
         from settings import settings_manager
