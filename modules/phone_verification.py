@@ -45,7 +45,7 @@ class EnterPhoneCodeModal(BaseModal, title="Enter the code we texted you"):
         label="Code", placeholder="e.g. AB3XZ9", max_length=10
     )
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
 
@@ -59,8 +59,8 @@ class EnterPhoneCodeModal(BaseModal, title="Enter the code we texted you"):
             )
 
 
-class EnterPhoneCodeButton(discord.ui.Button):
-    def __init__(self, settings: dict):
+class EnterPhoneCodeButton(discord.ui.Button[Any]):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(label="Enter Code", style=discord.ButtonStyle.primary)
         self.settings = settings
 
@@ -69,7 +69,7 @@ class EnterPhoneCodeButton(discord.ui.Button):
 
 
 class EnterPhoneCodeView(BaseView):
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(timeout=300)
         self.add_item(EnterPhoneCodeButton(settings))
 
@@ -80,7 +80,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         placeholder="+14155551234",
     )
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
 
@@ -162,8 +162,8 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         )
 
 
-class PhoneVerifyButton(discord.ui.Button):
-    def __init__(self):
+class PhoneVerifyButton(discord.ui.Button[Any]):
+    def __init__(self) -> None:
         super().__init__(
             label="Verify",
             style=discord.ButtonStyle.success,
@@ -186,7 +186,7 @@ class PhoneVerifyButton(discord.ui.Button):
 
 
 class PhoneVerificationView(BaseView):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(PhoneVerifyButton())
 
@@ -195,5 +195,5 @@ class PhoneVerification(VerificationModule):
     key = "phone"
     display_name = "Phone (SMS)"
 
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         return PhoneVerificationView()
