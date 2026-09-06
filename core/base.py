@@ -36,7 +36,7 @@ class VerificationModule(ABC):
         """
         Return an instance of the same view used in build_entry_view(),
         for the bot to re-register on startup via bot.add_view().
-        Defaults to calling build_entry_view() with an empty settings,
+        Defaults to calling build_entry_view() with empty settings,
         since persistent views must not depend on per-guild data at
         construction time - only at interaction time.
         """
