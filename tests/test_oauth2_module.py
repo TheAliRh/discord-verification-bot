@@ -9,10 +9,9 @@ from tests.conftest import FakeMember, FakeInteraction
 
 async def test_click_not_configured_gives_clear_message(monkeypatch):
     import settings as settings_pkg
-    from core import discord_oauth
 
-    monkeypatch.setattr(discord_oauth, "DISCORD_CLIENT_ID", None)
-    monkeypatch.setattr(discord_oauth, "DISCORD_CLIENT_SECRET", None)
+    monkeypatch.delenv("DISCORD_CLIENT_ID", raising=False)
+    monkeypatch.delenv("DISCORD_CLIENT_SECRET", raising=False)
 
     async def fake_get(guild_id):
         return {"min_account_age_days": 0}
@@ -28,13 +27,10 @@ async def test_click_not_configured_gives_clear_message(monkeypatch):
 
 async def test_click_configured_creates_state_and_sends_link(monkeypatch):
     import settings as settings_pkg
-    from core import discord_oauth
 
-    monkeypatch.setattr(discord_oauth, "DISCORD_CLIENT_ID", "my-client-id")
-    monkeypatch.setattr(discord_oauth, "DISCORD_CLIENT_SECRET", "my-secret")
-    monkeypatch.setattr(
-        discord_oauth, "OAUTH_REDIRECT_URI", "http://localhost:8080/oauth/callback"
-    )
+    monkeypatch.setenv("DISCORD_CLIENT_ID", "my-client-id")
+    monkeypatch.setenv("DISCORD_CLIENT_SECRET", "my-secret")
+    monkeypatch.setenv("OAUTH_REDIRECT_URI", "http://localhost:8080/oauth/callback")
 
     async def fake_get(guild_id):
         return {"min_account_age_days": 0}

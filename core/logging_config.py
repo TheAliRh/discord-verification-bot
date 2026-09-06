@@ -23,7 +23,7 @@ LOG_DIR = Path(__file__).parent.parent / "logs"
 LOG_FILE = LOG_DIR / "bot.log"
 
 
-def setup_logging():
+def setup_logging() -> None:
     level_name = os.getenv("LOG_LEVEL", "INFO").upper()
     level = getattr(logging, level_name, logging.INFO)
 

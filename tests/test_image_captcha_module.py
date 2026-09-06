@@ -85,7 +85,7 @@ async def test_correct_code_grants_verification():
     verified_role = FakeRole(100)
     guild = FakeGuild(roles=[verified_role])
     interaction = FakeInteraction(guild=guild)
-    store_challenge(interaction.user.id, "XYZ987")
+    store_challenge(interaction.guild_id, interaction.user.id, "XYZ987")
 
     modal = ImageCaptchaModal(settings={"verified_role_id": 100})
     modal.answer._value = "XYZ987"

@@ -55,7 +55,7 @@ async def test_correct_code_grants_verification():
     verified_role = FakeRole(100)
     guild = FakeGuild(roles=[verified_role])
     interaction = FakeInteraction(guild=guild)
-    store_challenge(interaction.user.id, "ABC234")
+    store_challenge(interaction.guild_id, interaction.user.id, "ABC234")
 
     modal = CaptchaModal(expected_code="ABC234", settings={"verified_role_id": 100})
     modal.answer._value = "ABC234"
@@ -80,3 +80,67 @@ def test_view_has_static_custom_id_and_is_persistent():
     view = CaptchaVerificationView()
     assert view.timeout is None
     assert view.children[0].custom_id == "verify:captcha:click"
+
+
+async def test_same_user_verifying_in_two_guilds_does_not_cross_contaminate(
+    monkeypatch,
+):
+    """
+    Integration-level regression test for the cross-guild challenge bug:
+    the same user clicking Verify in two different guilds must get two
+    independent codes, and Guild A's code must not work when submitted
+    against Guild B's challenge (or vice versa).
+    """
+    import settings as settings_pkg
+
+    guild_a = FakeGuild(guild_id=100, roles=[FakeRole(1)])
+    guild_b = FakeGuild(guild_id=200, roles=[FakeRole(2)])
+    same_user = FakeMember(user_id=42)
+
+    settings_by_guild = {
+        100: {
+            "verified_role_id": 1,
+            "min_account_age_days": 0,
+            "method_settings": {"captcha": {"length": 6, "type": "alphanumeric"}},
+        },
+        200: {
+            "verified_role_id": 2,
+            "min_account_age_days": 0,
+            "method_settings": {"captcha": {"length": 6, "type": "alphanumeric"}},
+        },
+    }
+
+    async def fake_get(guild_id):
+        return settings_by_guild[guild_id]
+
+    monkeypatch.setattr(settings_pkg.settings_manager, "get", fake_get)
+
+    # Click Verify in Guild A -> get a modal with Guild A's code
+    interaction_a = FakeInteraction(user=same_user, guild=guild_a)
+    button_a = CaptchaButton()
+    await button_a.callback(interaction_a)
+    modal_a = interaction_a.response.sent[0]
+    code_a = modal_a.answer.label.split(": ")[1]
+
+    # Same user clicks Verify in Guild B BEFORE finishing Guild A's -> gets Guild B's code
+    interaction_b = FakeInteraction(user=same_user, guild=guild_b)
+    button_b = CaptchaButton()
+    await button_b.callback(interaction_b)
+    modal_b = interaction_b.response.sent[0]
+    code_b = modal_b.answer.label.split(": ")[1]
+
+    assert (
+        code_a != code_b
+    )  # two independent codes were generated, not one overwriting the other
+
+    # Submitting Guild A's code in Guild B's modal must fail
+    modal_b.answer._value = code_a
+    wrong_guild_interaction = FakeInteraction(user=same_user, guild=guild_b)
+    await modal_b.on_submit(wrong_guild_interaction)
+    assert wrong_guild_interaction.user.added_roles == []  # not granted
+
+    # Submitting Guild A's own code in Guild A's own modal must still succeed
+    modal_a.answer._value = code_a
+    correct_interaction = FakeInteraction(user=same_user, guild=guild_a)
+    await modal_a.on_submit(correct_interaction)
+    assert 1 in correct_interaction.user.added_roles  # Guild A's role granted correctly

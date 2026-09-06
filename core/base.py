@@ -15,6 +15,7 @@ This keeps role-assignment, logging, and error handling in one shared place
 """
 
 from abc import ABC, abstractmethod
+from typing import Any
 import discord
 
 
@@ -23,7 +24,7 @@ class VerificationModule(ABC):
     display_name: str  # shown in UI / logs, e.g. "Button", "Captcha"
 
     @abstractmethod
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         """
         Return the discord.ui.View to attach to the verification message
         posted in the server's verify channel. Must be a persistent view
@@ -36,7 +37,7 @@ class VerificationModule(ABC):
         """
         Return an instance of the same view used in build_entry_view(),
         for the bot to re-register on startup via bot.add_view().
-        Defaults to calling build_entry_view() with an empty settings,
+        Defaults to calling build_entry_view() with empty settings,
         since persistent views must not depend on per-guild data at
         construction time - only at interaction time.
         """

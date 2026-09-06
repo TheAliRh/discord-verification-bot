@@ -5,6 +5,8 @@ Simplest method: user clicks a button, they're immediately verified
 (after passing any shared pre-checks, e.g. minimum account age).
 """
 
+from typing import Any
+
 import discord
 from core.base import VerificationModule
 from core import service
@@ -12,8 +14,8 @@ from core.prechecks import passes_prechecks
 from core.ui_base import BaseView
 
 
-class VerifyButton(discord.ui.Button):
-    def __init__(self):
+class VerifyButton(discord.ui.Button[Any]):
+    def __init__(self) -> None:
         super().__init__(
             label="Verify",
             style=discord.ButtonStyle.success,
@@ -23,7 +25,10 @@ class VerifyButton(discord.ui.Button):
             custom_id="verify:button:click",
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this button only ever appears on a message inside a guild
+
         # Settings are looked up fresh at click-time, not baked into the view,
         # so one persistent view definition works correctly for every guild.
         from settings import settings_manager
@@ -37,7 +42,7 @@ class VerifyButton(discord.ui.Button):
 
 
 class ButtonVerificationView(BaseView):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(timeout=None)  # timeout=None -> persists across restarts
         self.add_item(VerifyButton())
 
@@ -46,5 +51,5 @@ class ButtonVerification(VerificationModule):
     key = "button"
     display_name = "Button"
 
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         return ButtonVerificationView()

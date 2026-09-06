@@ -11,6 +11,7 @@ for a version that actually requires reading a distorted image.
 """
 
 import discord
+from typing import Any
 from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
@@ -19,10 +20,10 @@ from core.ui_base import BaseView, BaseModal
 
 
 class CaptchaModal(BaseModal, title="Verification Captcha"):
-    def __init__(self, expected_code: str, settings: dict):
+    def __init__(self, expected_code: str, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
-        self.answer = discord.ui.TextInput(
+        self.answer: discord.ui.TextInput[Any] = discord.ui.TextInput(
             label=f"Type this code: {expected_code}",
             placeholder="e.g. AB3XZ9",
             min_length=len(expected_code),
@@ -30,16 +31,23 @@ class CaptchaModal(BaseModal, title="Verification Captcha"):
         )
         self.add_item(self.answer)
 
-    async def on_submit(self, interaction: discord.Interaction):
-        passed, reason = check_answer(interaction.user.id, self.answer.value)
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this modal is only ever opened from a button inside a guild
+
+        passed, reason = check_answer(
+            interaction.guild_id, interaction.user.id, self.answer.value
+        )
         if passed:
             await service.grant_verified(interaction, self.settings)
         else:
-            await service.deny_verified(interaction, self.settings, reason)
+            await service.deny_verified(
+                interaction, self.settings, reason or "Incorrect answer."
+            )
 
 
-class CaptchaButton(discord.ui.Button):
-    def __init__(self):
+class CaptchaButton(discord.ui.Button[Any]):
+    def __init__(self) -> None:
         super().__init__(
             label="Verify",
             style=discord.ButtonStyle.success,
@@ -47,7 +55,10 @@ class CaptchaButton(discord.ui.Button):
             custom_id="verify:captcha:click",
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this button only ever appears on a message inside a guild
+
         from settings import settings_manager
 
         guild_settings = await settings_manager.get(interaction.guild_id)
@@ -60,13 +71,13 @@ class CaptchaButton(discord.ui.Button):
             method_settings.get("length", 6),
             method_settings.get("type", "alphanumeric"),
         )
-        store_challenge(interaction.user.id, code)
+        store_challenge(interaction.guild_id, interaction.user.id, code)
 
         await interaction.response.send_modal(CaptchaModal(code, guild_settings))
 
 
 class CaptchaVerificationView(BaseView):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(timeout=None)
         self.add_item(CaptchaButton())
 
@@ -75,5 +86,5 @@ class CaptchaVerification(VerificationModule):
     key = "captcha"
     display_name = "Captcha (text)"
 
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         return CaptchaVerificationView()

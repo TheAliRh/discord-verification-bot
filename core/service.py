@@ -15,17 +15,22 @@ implementations that could quietly drift apart.
 """
 
 import logging
+from typing import Any, cast
+
 import discord
 
 logger = logging.getLogger(__name__)
 
 
-async def _log(guild: discord.Guild, settings: dict, message: str):
+async def _log(guild: discord.Guild, settings: dict[str, Any], message: str) -> None:
     log_channel_id = settings.get("log_channel_id")
     if not log_channel_id:
         return
     channel = guild.get_channel(log_channel_id)
-    if channel is None:
+    if not isinstance(channel, discord.abc.Messageable):
+        # Not every channel type discord.py returns here supports .send()
+        # (e.g. CategoryChannel, ForumChannel) - if the configured log
+        # channel isn't a postable one, just skip rather than crash.
         return
     try:
         await channel.send(message)
@@ -39,7 +44,9 @@ async def _log(guild: discord.Guild, settings: dict, message: str):
         )
 
 
-async def log_event(guild: discord.Guild, settings: dict, message: str):
+async def log_event(
+    guild: discord.Guild, settings: dict[str, Any], message: str
+) -> None:
     """
     Public entry point for logging from outside this module - e.g. bot.py's
     on_member_join, which needs to record a join or a role-assignment
@@ -50,7 +57,7 @@ async def log_event(guild: discord.Guild, settings: dict, message: str):
 
 
 async def _assign_verified_role(
-    guild: discord.Guild, member: discord.Member, settings: dict
+    guild: discord.Guild, member: discord.Member, settings: dict[str, Any]
 ) -> tuple[bool, str]:
     """
     Core role-assignment logic, returning (success, human-readable message)
@@ -111,17 +118,35 @@ async def _assign_verified_role(
     return True, "You're verified! Welcome to the server."
 
 
-async def grant_verified(interaction: discord.Interaction, settings: dict):
+async def grant_verified(
+    interaction: discord.Interaction, settings: dict[str, Any]
+) -> None:
     """Interaction-based entry point - used by button/captcha/email/phone modules."""
-    ok, message = await _assign_verified_role(
-        interaction.guild, interaction.user, settings
-    )
+    guild = interaction.guild
+
+    if guild is None:
+        # Every verification component only ever appears on a message inside
+        # a guild, so this shouldn't happen in practice - guarded rather than
+        # assumed, so a stale/misdirected interaction fails cleanly instead
+        # of crashing with an AttributeError deeper in _assign_verified_role.
+        await interaction.response.send_message(
+            "This can only be used inside a server.", ephemeral=True
+        )
+        return
+
+    # discord.py guarantees interaction.user is a Member (not a bare User)
+    # whenever interaction.guild is set - a cast documents that real contract,
+    # rather than an isinstance check that would also (incorrectly) reject
+    # legitimate duck-typed test doubles that don't literally subclass Member.
+    member = cast(discord.Member, interaction.user)
+
+    ok, message = await _assign_verified_role(guild, member, settings)
     prefix = "✅ " if ok else ""
     await interaction.response.send_message(f"{prefix}{message}", ephemeral=True)
 
 
 async def grant_verified_by_id(
-    bot: discord.Client, guild_id: int, user_id: int, settings: dict
+    bot: discord.Client, guild_id: int, user_id: int, settings: dict[str, Any]
 ) -> tuple[bool, str]:
     """
     Non-interaction entry point - used by the OAuth2 web callback (web/server.py),
@@ -143,8 +168,10 @@ async def grant_verified_by_id(
 
 
 async def deny_verified(
-    interaction: discord.Interaction, settings: dict, reason: str = "Incorrect answer."
-):
+    interaction: discord.Interaction,
+    settings: dict[str, Any],
+    reason: str = "Incorrect answer.",
+) -> None:
     """Call when a user fails a verification attempt (e.g. wrong captcha code)."""
     logger.info(
         "%s (%s) failed verification in guild %s: %s",
@@ -156,8 +183,9 @@ async def deny_verified(
     await interaction.response.send_message(
         f"❌ {reason} Click Verify to try again.", ephemeral=True
     )
-    await _log(
-        interaction.guild,
-        settings,
-        f"❌ {interaction.user} failed verification: {reason}",
-    )
+    if interaction.guild is not None:
+        await _log(
+            interaction.guild,
+            settings,
+            f"❌ {interaction.user} failed verification: {reason}",
+        )

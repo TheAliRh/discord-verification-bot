@@ -1,19 +1,25 @@
 import os
+from dotenv import load_dotenv
+
+# Must happen before importing any of our own modules below: core/email_sender.py,
+# core/sms_sender.py, and core/discord_oauth.py read credentials from the
+# environment as soon as they're imported (not lazily inside a function), so
+# .env has to be loaded into os.environ before those imports run - not after.
+load_dotenv()
+
 import json
 import logging
 import discord
 from discord import app_commands
 from discord.ext import commands
-from dotenv import load_dotenv
 
 from settings import settings_manager
-from modules import get_module, all_persistent_views, MODULES
+from modules import get_module, all_persistent_views
 from ui import SetupView
 from web import start_server
 from core import service
 from core.logging_config import setup_logging
 
-load_dotenv()
 setup_logging()
 logger = logging.getLogger(__name__)
 
@@ -25,11 +31,33 @@ intents.members = True  # required to detect joins later - enable in Dev Portal 
 
 
 class VerifyBot(commands.Bot):
-    async def setup_hook(self):
+    async def setup_hook(self) -> None:
         # setup_hook runs exactly once, before the bot connects to the
-        # gateway - the correct place to start a background service like
-        # the OAuth2 callback server, rather than doing it in on_ready
-        # (which can fire more than once on reconnects).
+        # gateway for the first time - unlike on_ready, which discord.py
+        # can call again after a dropped gateway connection reconnects.
+        # Everything here must be safe to run ONLY once per process, or a
+        # reconnect would repeat it: settings_manager.init() would open a
+        # second (leaked) database connection without closing the first,
+        # add_view() would re-register views that are already registered,
+        # and tree.sync() would re-sync commands against Discord's API for
+        # no reason, burning rate limit budget every time the gateway blips.
+        try:
+            await settings_manager.init()
+        except Exception:
+            logger.critical(
+                "Failed to initialize the settings database (data/bot.db). "
+                "Check that the 'data/' folder exists and is writable. The bot cannot function without this.",
+                exc_info=True,
+            )
+            raise  # nothing else can work without settings - fail loudly and stop
+
+        # Re-register every module's persistent view so buttons on old messages
+        # (sent before this restart) still work.
+        for view in all_persistent_views():
+            self.add_view(view)
+
+        await self.tree.sync()
+
         try:
             self.web_runner = await start_server(self, port=OAUTH_SERVER_PORT)
             logger.info(
@@ -45,37 +73,28 @@ class VerifyBot(commands.Bot):
                 e,
             )
 
+        logger.info(
+            "Settings layer initialized. Persistent views registered. Commands synced."
+        )
+
 
 bot = VerifyBot(command_prefix="!", intents=intents)
 
 
 @bot.event
-async def on_ready():
-    try:
-        await settings_manager.init()
-    except Exception:
-        logger.critical(
-            "Failed to initialize the settings database (data/bot.db). "
-            "Check that the 'data/' folder exists and is writable. The bot cannot function without this.",
-            exc_info=True,
-        )
-        raise  # nothing else can work without settings - fail loudly and stop
-
-    # Re-register every module's persistent view so buttons on old messages
-    # (sent before this restart) still work. Safe to call every startup -
-    # discord.py just re-attaches the listener by custom_id.
-    for view in all_persistent_views():
-        bot.add_view(view)
-
-    await bot.tree.sync()
-    logger.info("Logged in as %s (id: %s)", bot.user, bot.user.id)
-    logger.info("Settings layer initialized. Persistent views registered.")
+async def on_ready() -> None:
+    # This CAN fire more than once per process (e.g. after a dropped gateway
+    # connection reconnects) - only safe, idempotent logging belongs here.
+    # All one-time startup work lives in setup_hook() above, which discord.py
+    # guarantees runs exactly once.
+    if bot.user is not None:
+        logger.info("Logged in as %s (id: %s)", bot.user, bot.user.id)
 
 
 @bot.tree.error
 async def on_app_command_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
-):
+) -> None:
     if isinstance(error, app_commands.MissingPermissions):
         await interaction.response.send_message(
             "You need the **Manage Server** permission to use this command.",
@@ -102,7 +121,7 @@ async def on_app_command_error(
 
 
 @bot.event
-async def on_member_join(member: discord.Member):
+async def on_member_join(member: discord.Member) -> None:
     guild_settings = await settings_manager.get(member.guild.id)
 
     if not guild_settings.get("enabled", True):
@@ -176,8 +195,10 @@ verify_group = app_commands.Group(name="verify", description="Verification setup
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_setup(interaction: discord.Interaction):
-    current_settings = await settings_manager.get(interaction.guild_id)
+async def verify_setup(interaction: discord.Interaction) -> None:
+    if interaction.guild is None:
+        return  # guild_only() already enforces this; narrows the type for mypy too
+    current_settings = await settings_manager.get(interaction.guild.id)
     view = SetupView(current_settings)
     await interaction.response.send_message(
         embed=view.build_embed(), view=view, ephemeral=True
@@ -192,8 +213,10 @@ bot.tree.add_command(verify_group)
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_view(interaction: discord.Interaction):
-    guild_settings = await settings_manager.get(interaction.guild_id)
+async def verify_view(interaction: discord.Interaction) -> None:
+    if interaction.guild is None:
+        return
+    guild_settings = await settings_manager.get(interaction.guild.id)
     pretty = json.dumps(guild_settings, indent=2)
 
     if len(pretty) > 1900:
@@ -220,9 +243,11 @@ async def verify_view(interaction: discord.Interaction):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_method(
     interaction: discord.Interaction, method: app_commands.Choice[str]
-):
+) -> None:
+    if interaction.guild is None:
+        return
     new_settings = await settings_manager.update(
-        interaction.guild_id, {"method": method.value}
+        interaction.guild.id, {"method": method.value}
     )
     await interaction.response.send_message(
         f"Verification method set to **{new_settings['method']}**.", ephemeral=True
@@ -235,7 +260,10 @@ async def verify_set_method(
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
+async def verify_set_role(interaction: discord.Interaction, role: discord.Role) -> None:
+    if interaction.guild is None:
+        return
+
     if role >= interaction.guild.me.top_role:
         await interaction.response.send_message(
             "⚠️ My bot's role is not above that role, so I won't be able to assign it. "
@@ -244,7 +272,7 @@ async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
         )
         return
 
-    await settings_manager.update(interaction.guild_id, {"verified_role_id": role.id})
+    await settings_manager.update(interaction.guild.id, {"verified_role_id": role.id})
     await interaction.response.send_message(
         f"Verified role set to {role.mention}.", ephemeral=True
     )
@@ -258,7 +286,10 @@ async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_unverified_role(
     interaction: discord.Interaction, role: discord.Role
-):
+) -> None:
+    if interaction.guild is None:
+        return
+
     if role >= interaction.guild.me.top_role:
         await interaction.response.send_message(
             "⚠️ My bot's role is not above that role, so I won't be able to assign it. "
@@ -267,7 +298,7 @@ async def verify_set_unverified_role(
         )
         return
 
-    await settings_manager.update(interaction.guild_id, {"unverified_role_id": role.id})
+    await settings_manager.update(interaction.guild.id, {"unverified_role_id": role.id})
     await interaction.response.send_message(
         f"Unverified role set to {role.mention}. New members will get this automatically on join.\n"
         "Remember to also deny **View Channel** for this role on any channels you want hidden "
@@ -285,8 +316,11 @@ async def verify_set_unverified_role(
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_min_age(
     interaction: discord.Interaction, days: app_commands.Range[int, 0, 3650]
-):
-    await settings_manager.update(interaction.guild_id, {"min_account_age_days": days})
+) -> None:
+    if interaction.guild is None:
+        return
+
+    await settings_manager.update(interaction.guild.id, {"min_account_age_days": days})
 
     if days == 0:
         await interaction.response.send_message(
@@ -300,12 +334,16 @@ async def verify_set_min_age(
 
 
 @bot.tree.command(
-    name="verify-post", description="Post the verification message in this channel"
+    name="verify-post",
+    description="Post the verification message in the configured verification channel",
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_post(interaction: discord.Interaction):
-    guild_settings = await settings_manager.get(interaction.guild_id)
+async def verify_post(interaction: discord.Interaction) -> None:
+    if interaction.guild is None:
+        return
+
+    guild_settings = await settings_manager.get(interaction.guild.id)
 
     if guild_settings.get("verified_role_id") is None:
         await interaction.response.send_message(
@@ -313,6 +351,10 @@ async def verify_post(interaction: discord.Interaction):
         )
         return
 
+    # get_module() already falls back to Button for an unknown/invalid stored
+    # method, so module.display_name below is always safe - unlike indexing
+    # MODULES[guild_settings["method"]] directly, which would raise KeyError
+    # on the exact same invalid value this line is guarding against.
     module = get_module(guild_settings["method"])
     view = module.build_entry_view(guild_settings)
 
@@ -320,7 +362,7 @@ async def verify_post(interaction: discord.Interaction):
         title="Verification required",
         description=guild_settings.get("welcome_message", "Click below to verify."),
     )
-    embed.set_footer(text=f"Method: {MODULES[guild_settings['method']].display_name}")
+    embed.set_footer(text=f"Method: {module.display_name}")
 
     min_age_days = guild_settings.get("min_account_age_days", 0)
     if min_age_days > 0:
@@ -330,10 +372,53 @@ async def verify_post(interaction: discord.Interaction):
             inline=False,
         )
 
-    await interaction.channel.send(embed=embed, view=view)
-    await interaction.response.send_message(
-        "Verification message posted.", ephemeral=True
-    )
+    # Post in the channel configured via /verify setup, not wherever this
+    # command happened to be run - falling back to the current channel only
+    # if none is configured, or the configured one is no longer usable.
+    verify_channel_id = guild_settings.get("verify_channel_id")
+    target_channel: discord.abc.Messageable | None = None
+    fallback_warning: str | None = None
+
+    if verify_channel_id is not None:
+        configured_channel = interaction.guild.get_channel(verify_channel_id)
+        if configured_channel is None:
+            fallback_warning = (
+                f"⚠️ The configured verification channel (<#{verify_channel_id}>) no longer exists - "
+                "posted here instead. Run `/verify setup` to pick a new one."
+            )
+        elif not isinstance(configured_channel, discord.abc.Messageable):
+            fallback_warning = (
+                f"⚠️ The configured verification channel (<#{verify_channel_id}>) isn't a channel "
+                "type I can post in - posted here instead. Run `/verify setup` to pick a new one."
+            )
+        else:
+            target_channel = configured_channel
+
+    if target_channel is None:
+        if not isinstance(interaction.channel, discord.abc.Messageable):
+            await interaction.response.send_message(
+                "This can't be posted in this type of channel, and no valid verification "
+                "channel is configured. Run `/verify setup` to pick one.",
+                ephemeral=True,
+            )
+            return
+        target_channel = interaction.channel
+
+    try:
+        await target_channel.send(embed=embed, view=view)
+    except discord.Forbidden:
+        channel_mention = getattr(target_channel, "mention", "that channel")
+        await interaction.response.send_message(
+            f"I don't have permission to post in {channel_mention}. Check my channel permissions there.",
+            ephemeral=True,
+        )
+        return
+
+    channel_mention = getattr(target_channel, "mention", "this channel")
+    confirmation = f"Verification message posted in {channel_mention}."
+    if fallback_warning:
+        confirmation = f"{fallback_warning}\n{confirmation}"
+    await interaction.response.send_message(confirmation, ephemeral=True)
 
 
 @bot.tree.command(
@@ -342,8 +427,10 @@ async def verify_post(interaction: discord.Interaction):
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_reset(interaction: discord.Interaction):
-    await settings_manager.reset(interaction.guild_id)
+async def verify_reset(interaction: discord.Interaction) -> None:
+    if interaction.guild is None:
+        return
+    await settings_manager.reset(interaction.guild.id)
     await interaction.response.send_message(
         "Verification settings reset to defaults.", ephemeral=True
     )

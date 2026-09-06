@@ -17,6 +17,7 @@ need to point at that public URL instead.
 
 import logging
 
+import discord
 from aiohttp import web
 
 from settings import settings_manager
@@ -121,14 +122,16 @@ async def oauth_callback(request: web.Request) -> web.Response:
     return _html(title, message, status=200 if ok else 400)
 
 
-def create_app(bot) -> web.Application:
+def create_app(bot: discord.Client) -> web.Application:
     app = web.Application()
     app["bot"] = bot
     app.router.add_get("/oauth/callback", oauth_callback)
     return app
 
 
-async def start_server(bot, host: str = "0.0.0.0", port: int = 8080) -> web.AppRunner:
+async def start_server(
+    bot: discord.Client, host: str = "0.0.0.0", port: int = 8080
+) -> web.AppRunner:
     app = create_app(bot)
     runner = web.AppRunner(app)
     await runner.setup()

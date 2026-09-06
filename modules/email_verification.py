@@ -14,6 +14,8 @@ get a clear "not available" message instead of a silent failure.
 """
 
 import logging
+from typing import Any
+
 import discord
 from core.base import VerificationModule
 from core import service
@@ -39,47 +41,57 @@ def _looks_like_email(address: str) -> bool:
 
 
 class EnterEmailCodeModal(BaseModal, title="Enter the code we emailed you"):
-    answer = discord.ui.TextInput(
+    answer: discord.ui.TextInput[Any] = discord.ui.TextInput(
         label="Code", placeholder="e.g. AB3XZ9", max_length=10
     )
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
 
-    async def on_submit(self, interaction: discord.Interaction):
-        passed, reason = check_answer(interaction.user.id, self.answer.value)
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this modal is only ever opened from a button inside a guild
+
+        passed, reason = check_answer(
+            interaction.guild_id, interaction.user.id, self.answer.value
+        )
         if passed:
             await service.grant_verified(interaction, self.settings)
         else:
-            await service.deny_verified(interaction, self.settings, reason)
+            await service.deny_verified(
+                interaction, self.settings, reason or "Incorrect answer."
+            )
 
 
-class EnterEmailCodeButton(discord.ui.Button):
-    def __init__(self, settings: dict):
+class EnterEmailCodeButton(discord.ui.Button[Any]):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(label="Enter Code", style=discord.ButtonStyle.primary)
         self.settings = settings
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_modal(EnterEmailCodeModal(self.settings))
 
 
 class EnterEmailCodeView(BaseView):
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(timeout=300)
         self.add_item(EnterEmailCodeButton(settings))
 
 
 class EmailAddressModal(BaseModal, title="Verify by Email"):
-    email = discord.ui.TextInput(
+    email: discord.ui.TextInput[Any] = discord.ui.TextInput(
         label="Your email address", placeholder="you@example.com"
     )
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            return  # this modal is only ever opened from a button inside a guild
+
         address = self.email.value.strip()
 
         if not _looks_like_email(address):
@@ -92,7 +104,8 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         method_settings = self.settings["method_settings"].get("email", {})
 
         allowed, retry_after = check_and_record(
-            f"email:{interaction.user.id}", method_settings.get("cooldown_seconds", 60)
+            f"email:{interaction.guild.id}:{interaction.user.id}",
+            method_settings.get("cooldown_seconds", 60),
         )
         if not allowed:
             await interaction.response.send_message(
@@ -102,7 +115,7 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
             return
 
         code = generate_code(method_settings.get("length", 6), "alphanumeric")
-        store_challenge(interaction.user.id, code)
+        store_challenge(interaction.guild.id, interaction.user.id, code)
 
         try:
             await send_verification_email(address, code, interaction.guild.name)
@@ -141,8 +154,8 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         )
 
 
-class EmailVerifyButton(discord.ui.Button):
-    def __init__(self):
+class EmailVerifyButton(discord.ui.Button[Any]):
+    def __init__(self) -> None:
         super().__init__(
             label="Verify",
             style=discord.ButtonStyle.success,
@@ -150,7 +163,10 @@ class EmailVerifyButton(discord.ui.Button):
             custom_id="verify:email:click",
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this button only ever appears on a message inside a guild
+
         from settings import settings_manager
 
         guild_settings = await settings_manager.get(interaction.guild_id)
@@ -162,7 +178,7 @@ class EmailVerifyButton(discord.ui.Button):
 
 
 class EmailVerificationView(BaseView):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(EmailVerifyButton())
 
@@ -171,5 +187,5 @@ class EmailVerification(VerificationModule):
     key = "email"
     display_name = "Email"
 
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         return EmailVerificationView()

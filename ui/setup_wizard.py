@@ -8,6 +8,8 @@ button that opens a modal for the welcome message text. Everything is saved
 in a single write when "Save Setup" is pressed.
 """
 
+from typing import Any
+
 import discord
 from settings import settings_manager
 from modules import MODULES
@@ -26,7 +28,7 @@ def _method_options() -> list[discord.SelectOption]:
 
 
 class WelcomeMessageModal(BaseModal, title="Customize Welcome Message"):
-    message = discord.ui.TextInput(
+    message: discord.ui.TextInput[Any] = discord.ui.TextInput(
         label="Message shown above the Verify button",
         style=discord.TextStyle.paragraph,
         max_length=300,
@@ -38,14 +40,14 @@ class WelcomeMessageModal(BaseModal, title="Customize Welcome Message"):
         self.wizard_view = wizard_view
         self.message.default = wizard_view.welcome_message
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         self.wizard_view.welcome_message = self.message.value
         await interaction.response.edit_message(
             embed=self.wizard_view.build_embed(), view=self.wizard_view
         )
 
 
-class MethodSelect(discord.ui.Select):
+class MethodSelect(discord.ui.Select[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(
@@ -56,21 +58,24 @@ class MethodSelect(discord.ui.Select):
             row=0,
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
         self.wizard_view.method = self.values[0]
         await interaction.response.edit_message(
             embed=self.wizard_view.build_embed(), view=self.wizard_view
         )
 
 
-class VerifiedRoleSelect(discord.ui.RoleSelect):
+class VerifiedRoleSelect(discord.ui.RoleSelect[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(
             placeholder="Choose the Verified role...", min_values=1, max_values=1, row=1
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            return  # this select only ever appears on a message inside a guild
+
         role = self.values[0]
         if role >= interaction.guild.me.top_role:
             await interaction.response.send_message(
@@ -85,7 +90,7 @@ class VerifiedRoleSelect(discord.ui.RoleSelect):
         )
 
 
-class VerifyChannelSelect(discord.ui.ChannelSelect):
+class VerifyChannelSelect(discord.ui.ChannelSelect[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(
@@ -96,30 +101,30 @@ class VerifyChannelSelect(discord.ui.ChannelSelect):
             row=2,
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
         self.wizard_view.verify_channel_id = self.values[0].id
         await interaction.response.edit_message(
             embed=self.wizard_view.build_embed(), view=self.wizard_view
         )
 
 
-class EditWelcomeMessageButton(discord.ui.Button):
+class EditWelcomeMessageButton(discord.ui.Button[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(
             label="Edit Welcome Message", style=discord.ButtonStyle.secondary, row=3
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_modal(WelcomeMessageModal(self.wizard_view))
 
 
-class FinishSetupButton(discord.ui.Button):
+class FinishSetupButton(discord.ui.Button[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(label="Save Setup", style=discord.ButtonStyle.success, row=3)
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
         wizard = self.wizard_view
 
         if wizard.verified_role_id is None or wizard.verify_channel_id is None:
@@ -128,6 +133,9 @@ class FinishSetupButton(discord.ui.Button):
                 ephemeral=True,
             )
             return
+
+        if interaction.guild_id is None:
+            return  # this button only ever appears on a message inside a guild
 
         await settings_manager.update(
             interaction.guild_id,
@@ -140,7 +148,7 @@ class FinishSetupButton(discord.ui.Button):
         )
 
         for child in wizard.children:
-            child.disabled = True
+            child.disabled = True  # type: ignore[attr-defined]  # every child here is a Button/Select, which has .disabled
         wizard.stop()
 
         await interaction.response.edit_message(
@@ -150,14 +158,14 @@ class FinishSetupButton(discord.ui.Button):
         )
 
 
-class CancelSetupButton(discord.ui.Button):
+class CancelSetupButton(discord.ui.Button[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(label="Cancel", style=discord.ButtonStyle.danger, row=3)
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
         for child in self.wizard_view.children:
-            child.disabled = True
+            child.disabled = True  # type: ignore[attr-defined]  # every child here is a Button/Select, which has .disabled
         self.wizard_view.stop()
         await interaction.response.edit_message(
             content="Setup cancelled. Nothing was changed.",
@@ -172,7 +180,7 @@ class SetupView(BaseView):
     the setup wizard only needs to survive one admin's active session.
     """
 
-    def __init__(self, current_settings: dict):
+    def __init__(self, current_settings: dict[str, Any]):
         super().__init__(timeout=300)
         self.method = current_settings.get("method", "button")
         self.verified_role_id = current_settings.get("verified_role_id")
@@ -224,6 +232,6 @@ class SetupView(BaseView):
 
         return embed
 
-    async def on_timeout(self):
+    async def on_timeout(self) -> None:
         for child in self.children:
-            child.disabled = True
+            child.disabled = True  # type: ignore[attr-defined]  # every child here is a Button/Select, which has .disabled

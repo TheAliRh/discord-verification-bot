@@ -11,8 +11,9 @@ and back to our callback route unchanged, so it serves two purposes here:
 
 import secrets
 import time
+from typing import Any
 
-_STATES: dict[str, dict] = {}
+_STATES: dict[str, dict[str, Any]] = {}
 _TTL_SECONDS = 600  # OAuth flows can take longer than typing a captcha code
 
 
@@ -27,7 +28,7 @@ def create_state(guild_id: int, user_id: int) -> str:
     return token
 
 
-def consume_state(token: str) -> dict | None:
+def consume_state(token: str) -> dict[str, Any] | None:
     """Single-use: pops the entry so a state token can't be replayed."""
     entry = _STATES.pop(token, None)
     if entry is None:
@@ -37,7 +38,7 @@ def consume_state(token: str) -> dict | None:
     return entry
 
 
-def _cleanup_expired():
+def _cleanup_expired() -> None:
     now = time.time()
     expired = [t for t, e in _STATES.items() if e["expires_at"] < now]
     for t in expired:

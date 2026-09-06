@@ -17,6 +17,8 @@ instead of a silent failure.
 
 import re
 import logging
+from typing import Any
+
 import discord
 from core.base import VerificationModule
 from core import service
@@ -39,48 +41,58 @@ def _looks_like_phone_number(number: str) -> bool:
 
 
 class EnterPhoneCodeModal(BaseModal, title="Enter the code we texted you"):
-    answer = discord.ui.TextInput(
+    answer: discord.ui.TextInput[Any] = discord.ui.TextInput(
         label="Code", placeholder="e.g. AB3XZ9", max_length=10
     )
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
 
-    async def on_submit(self, interaction: discord.Interaction):
-        passed, reason = check_answer(interaction.user.id, self.answer.value)
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this modal is only ever opened from a button inside a guild
+
+        passed, reason = check_answer(
+            interaction.guild_id, interaction.user.id, self.answer.value
+        )
         if passed:
             await service.grant_verified(interaction, self.settings)
         else:
-            await service.deny_verified(interaction, self.settings, reason)
+            await service.deny_verified(
+                interaction, self.settings, reason or "Incorrect answer."
+            )
 
 
-class EnterPhoneCodeButton(discord.ui.Button):
-    def __init__(self, settings: dict):
+class EnterPhoneCodeButton(discord.ui.Button[Any]):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(label="Enter Code", style=discord.ButtonStyle.primary)
         self.settings = settings
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_modal(EnterPhoneCodeModal(self.settings))
 
 
 class EnterPhoneCodeView(BaseView):
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(timeout=300)
         self.add_item(EnterPhoneCodeButton(settings))
 
 
 class PhoneNumberModal(BaseModal, title="Verify by Phone"):
-    phone_number = discord.ui.TextInput(
+    phone_number: discord.ui.TextInput[Any] = discord.ui.TextInput(
         label="Your phone number (with country code)",
         placeholder="+14155551234",
     )
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
+        if interaction.guild is None:
+            return  # this modal is only ever opened from a button inside a guild
+
         number = self.phone_number.value.strip()
 
         if not _looks_like_phone_number(number):
@@ -94,7 +106,8 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         method_settings = self.settings["method_settings"].get("phone", {})
 
         allowed, retry_after = check_and_record(
-            f"phone:{interaction.user.id}", method_settings.get("cooldown_seconds", 60)
+            f"phone:{interaction.guild.id}:{interaction.user.id}",
+            method_settings.get("cooldown_seconds", 60),
         )
         if not allowed:
             await interaction.response.send_message(
@@ -104,7 +117,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             return
 
         code = generate_code(method_settings.get("length", 6), "numeric")
-        store_challenge(interaction.user.id, code)
+        store_challenge(interaction.guild.id, interaction.user.id, code)
 
         try:
             await send_verification_sms(number, code, interaction.guild.name)
@@ -155,8 +168,8 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         )
 
 
-class PhoneVerifyButton(discord.ui.Button):
-    def __init__(self):
+class PhoneVerifyButton(discord.ui.Button[Any]):
+    def __init__(self) -> None:
         super().__init__(
             label="Verify",
             style=discord.ButtonStyle.success,
@@ -164,7 +177,10 @@ class PhoneVerifyButton(discord.ui.Button):
             custom_id="verify:phone:click",
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this button only ever appears on a message inside a guild
+
         from settings import settings_manager
 
         guild_settings = await settings_manager.get(interaction.guild_id)
@@ -176,7 +192,7 @@ class PhoneVerifyButton(discord.ui.Button):
 
 
 class PhoneVerificationView(BaseView):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(PhoneVerifyButton())
 
@@ -185,5 +201,5 @@ class PhoneVerification(VerificationModule):
     key = "phone"
     display_name = "Phone (SMS)"
 
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         return PhoneVerificationView()
