@@ -14,12 +14,14 @@ Usage in a module's entry-point callback:
     # ... proceed with this module's own verification flow
 """
 
+from typing import Any
+
 import discord
 from . import service
 
 
 async def passes_prechecks(
-    interaction: discord.Interaction, guild_settings: dict
+    interaction: discord.Interaction, guild_settings: dict[str, Any]
 ) -> bool:
     """
     Returns True if the user may proceed to the verification module's own
@@ -45,7 +47,9 @@ def _account_age_days(user: discord.User | discord.Member) -> int:
     return (discord.utils.utcnow() - user.created_at).days
 
 
-def _passes_account_age(interaction: discord.Interaction, guild_settings: dict) -> bool:
+def _passes_account_age(
+    interaction: discord.Interaction, guild_settings: dict[str, Any]
+) -> bool:
     min_age_days: int = guild_settings.get("min_account_age_days", 0)
     if min_age_days <= 0:
         return True  # check disabled
