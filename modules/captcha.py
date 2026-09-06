@@ -20,7 +20,7 @@ from core.ui_base import BaseView, BaseModal
 
 
 class CaptchaModal(BaseModal, title="Verification Captcha"):
-    def __init__(self, expected_code: str, settings: dict):
+    def __init__(self, expected_code: str, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
         self.answer: discord.ui.TextInput[Any] = discord.ui.TextInput(
@@ -41,8 +41,8 @@ class CaptchaModal(BaseModal, title="Verification Captcha"):
             )
 
 
-class CaptchaButton(discord.ui.Button):
-    def __init__(self):
+class CaptchaButton(discord.ui.Button[Any]):
+    def __init__(self) -> None:
         super().__init__(
             label="Verify",
             style=discord.ButtonStyle.success,
@@ -72,7 +72,7 @@ class CaptchaButton(discord.ui.Button):
 
 
 class CaptchaVerificationView(BaseView):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(timeout=None)
         self.add_item(CaptchaButton())
 
@@ -81,5 +81,5 @@ class CaptchaVerification(VerificationModule):
     key = "captcha"
     display_name = "Captcha (text)"
 
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         return CaptchaVerificationView()
