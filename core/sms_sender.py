@@ -7,16 +7,16 @@ every send. Credentials are bot-wide, loaded from .env - same reasoning as
 core/email_sender.py: they must never end up in per-guild settings, which
 /verify-view dumps in full.
 
+Credentials are read fresh from os.environ on every call rather than cached
+as module-level constants at import time - see core/email_sender.py's
+docstring for why that matters (import-order fragility).
+
 Requires a Twilio account (paid, per-message cost) with a verified sender
 number capable of sending SMS in the destination country.
 """
 
 import os
 import aiohttp
-
-TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
-TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
-TWILIO_FROM_NUMBER = os.getenv("TWILIO_FROM_NUMBER")
 
 _TWILIO_API_URL = "https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
 
@@ -30,7 +30,13 @@ class SMSSendError(Exception):
 
 
 def is_configured() -> bool:
-    return all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER])
+    return all(
+        [
+            os.getenv("TWILIO_ACCOUNT_SID"),
+            os.getenv("TWILIO_AUTH_TOKEN"),
+            os.getenv("TWILIO_FROM_NUMBER"),
+        ]
+    )
 
 
 async def send_verification_sms(to_number: str, code: str, guild_name: str) -> None:
@@ -38,21 +44,23 @@ async def send_verification_sms(to_number: str, code: str, guild_name: str) -> N
         raise SMSNotConfigured(
             "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER are not set in .env"
         )
+
+    account_sid = os.getenv("TWILIO_ACCOUNT_SID")
+    auth_token = os.getenv("TWILIO_AUTH_TOKEN")
+    from_number = os.getenv("TWILIO_FROM_NUMBER")
     # is_configured() already confirmed these are non-None, but mypy can't
     # infer that from a separate function call - narrow explicitly.
     assert (
-        TWILIO_ACCOUNT_SID is not None
-        and TWILIO_AUTH_TOKEN is not None
-        and TWILIO_FROM_NUMBER is not None
+        account_sid is not None and auth_token is not None and from_number is not None
     )
 
-    url = _TWILIO_API_URL.format(sid=TWILIO_ACCOUNT_SID)
+    url = _TWILIO_API_URL.format(sid=account_sid)
     body = {
         "To": to_number,
-        "From": TWILIO_FROM_NUMBER,
+        "From": from_number,
         "Body": f"Your verification code for {guild_name} is: {code}",
     }
-    auth = aiohttp.BasicAuth(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    auth = aiohttp.BasicAuth(account_sid, auth_token)
 
     async with aiohttp.ClientSession() as session:
         async with session.post(url, data=body, auth=auth) as response:
