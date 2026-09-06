@@ -14,8 +14,9 @@ processes/shards sharing state, swap this for Redis or the DB.
 import random
 import string
 import time
+from typing import Any
 
-_CHALLENGES: dict[int, dict] = {}
+_CHALLENGES: dict[int, dict[str, Any]] = {}
 _DEFAULT_TTL_SECONDS = 300
 
 # Characters that are easy to confuse (0/O, 1/I) are excluded from every captcha variant.
@@ -30,7 +31,9 @@ def generate_code(length: int = 6, kind: str = "alphanumeric") -> str:
     return "".join(random.choices(alphabet, k=length))
 
 
-def store_challenge(user_id: int, code: str, ttl_seconds: int = _DEFAULT_TTL_SECONDS):
+def store_challenge(
+    user_id: int, code: str, ttl_seconds: int = _DEFAULT_TTL_SECONDS
+) -> None:
     _cleanup_expired()
     _CHALLENGES[user_id] = {"code": code, "expires_at": time.time() + ttl_seconds}
 
@@ -52,7 +55,7 @@ def check_answer(user_id: int, answer: str) -> tuple[bool, str | None]:
     return False, "That code didn't match."
 
 
-def _cleanup_expired():
+def _cleanup_expired() -> None:
     now = time.time()
     expired = [uid for uid, entry in _CHALLENGES.items() if entry["expires_at"] < now]
     for uid in expired:
