@@ -11,6 +11,7 @@ for a version that actually requires reading a distorted image.
 """
 
 import discord
+from typing import Any
 from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
@@ -22,7 +23,7 @@ class CaptchaModal(BaseModal, title="Verification Captcha"):
     def __init__(self, expected_code: str, settings: dict):
         super().__init__()
         self.settings = settings
-        self.answer = discord.ui.TextInput(
+        self.answer: discord.ui.TextInput[Any] = discord.ui.TextInput(
             label=f"Type this code: {expected_code}",
             placeholder="e.g. AB3XZ9",
             min_length=len(expected_code),
@@ -30,12 +31,14 @@ class CaptchaModal(BaseModal, title="Verification Captcha"):
         )
         self.add_item(self.answer)
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         passed, reason = check_answer(interaction.user.id, self.answer.value)
         if passed:
             await service.grant_verified(interaction, self.settings)
         else:
-            await service.deny_verified(interaction, self.settings, reason)
+            await service.deny_verified(
+                interaction, self.settings, reason or "Incorrect answer."
+            )
 
 
 class CaptchaButton(discord.ui.Button):
@@ -47,7 +50,10 @@ class CaptchaButton(discord.ui.Button):
             custom_id="verify:captcha:click",
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this button only ever appears on a message inside a guild
+
         from settings import settings_manager
 
         guild_settings = await settings_manager.get(interaction.guild_id)
