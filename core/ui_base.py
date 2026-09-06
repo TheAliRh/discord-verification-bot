@@ -16,6 +16,7 @@ everywhere without repeating it in every file.
 """
 
 import logging
+from typing import Any
 import discord
 
 logger = logging.getLogger(__name__)
@@ -25,7 +26,7 @@ _GENERIC_MESSAGE = "Something went wrong. Please try again, or contact a server 
 
 async def _handle_component_error(
     interaction: discord.Interaction, error: Exception, source: str
-):
+) -> None:
     logger.error("Unhandled error in %s", source, exc_info=error)
 
     try:
@@ -43,7 +44,10 @@ async def _handle_component_error(
 
 class BaseView(discord.ui.View):
     async def on_error(
-        self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item
+        self,
+        interaction: discord.Interaction,
+        error: Exception,
+        item: discord.ui.Item[Any],
     ) -> None:
         await _handle_component_error(
             interaction, error, f"{type(self).__name__} ({type(item).__name__})"
