@@ -45,7 +45,10 @@ class OAuth2VerifyButton(discord.ui.Button):
             custom_id="verify:oauth2:click",
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this button only ever appears on a message inside a guild
+
         from settings import settings_manager
 
         guild_settings = await settings_manager.get(interaction.guild_id)
