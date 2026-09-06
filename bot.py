@@ -25,7 +25,7 @@ intents.members = True  # required to detect joins later - enable in Dev Portal 
 
 
 class VerifyBot(commands.Bot):
-    async def setup_hook(self):
+    async def setup_hook(self) -> None:
         # setup_hook runs exactly once, before the bot connects to the
         # gateway - the correct place to start a background service like
         # the OAuth2 callback server, rather than doing it in on_ready
@@ -50,7 +50,7 @@ bot = VerifyBot(command_prefix="!", intents=intents)
 
 
 @bot.event
-async def on_ready():
+async def on_ready() -> None:
     try:
         await settings_manager.init()
     except Exception:
@@ -68,14 +68,16 @@ async def on_ready():
         bot.add_view(view)
 
     await bot.tree.sync()
-    logger.info("Logged in as %s (id: %s)", bot.user, bot.user.id)
+
+    if bot.user is not None:
+        logger.info("Logged in as %s (id: %s)", bot.user, bot.user.id)
     logger.info("Settings layer initialized. Persistent views registered.")
 
 
 @bot.tree.error
 async def on_app_command_error(
     interaction: discord.Interaction, error: app_commands.AppCommandError
-):
+) -> None:
     if isinstance(error, app_commands.MissingPermissions):
         await interaction.response.send_message(
             "You need the **Manage Server** permission to use this command.",
@@ -102,7 +104,7 @@ async def on_app_command_error(
 
 
 @bot.event
-async def on_member_join(member: discord.Member):
+async def on_member_join(member: discord.Member) -> None:
     guild_settings = await settings_manager.get(member.guild.id)
 
     if not guild_settings.get("enabled", True):
@@ -176,8 +178,10 @@ verify_group = app_commands.Group(name="verify", description="Verification setup
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_setup(interaction: discord.Interaction):
-    current_settings = await settings_manager.get(interaction.guild_id)
+async def verify_setup(interaction: discord.Interaction) -> None:
+    if interaction.guild is None:
+        return  # guild_only() already enforces this; narrows the type for mypy too
+    current_settings = await settings_manager.get(interaction.guild.id)
     view = SetupView(current_settings)
     await interaction.response.send_message(
         embed=view.build_embed(), view=view, ephemeral=True
@@ -192,8 +196,10 @@ bot.tree.add_command(verify_group)
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_view(interaction: discord.Interaction):
-    guild_settings = await settings_manager.get(interaction.guild_id)
+async def verify_view(interaction: discord.Interaction) -> None:
+    if interaction.guild is None:
+        return
+    guild_settings = await settings_manager.get(interaction.guild.id)
     pretty = json.dumps(guild_settings, indent=2)
 
     if len(pretty) > 1900:
@@ -220,9 +226,11 @@ async def verify_view(interaction: discord.Interaction):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_method(
     interaction: discord.Interaction, method: app_commands.Choice[str]
-):
+) -> None:
+    if interaction.guild is None:
+        return
     new_settings = await settings_manager.update(
-        interaction.guild_id, {"method": method.value}
+        interaction.guild.id, {"method": method.value}
     )
     await interaction.response.send_message(
         f"Verification method set to **{new_settings['method']}**.", ephemeral=True
@@ -235,7 +243,10 @@ async def verify_set_method(
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
+async def verify_set_role(interaction: discord.Interaction, role: discord.Role) -> None:
+    if interaction.guild is None:
+        return
+
     if role >= interaction.guild.me.top_role:
         await interaction.response.send_message(
             "⚠️ My bot's role is not above that role, so I won't be able to assign it. "
@@ -244,7 +255,7 @@ async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
         )
         return
 
-    await settings_manager.update(interaction.guild_id, {"verified_role_id": role.id})
+    await settings_manager.update(interaction.guild.id, {"verified_role_id": role.id})
     await interaction.response.send_message(
         f"Verified role set to {role.mention}.", ephemeral=True
     )
@@ -258,7 +269,10 @@ async def verify_set_role(interaction: discord.Interaction, role: discord.Role):
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_unverified_role(
     interaction: discord.Interaction, role: discord.Role
-):
+) -> None:
+    if interaction.guild is None:
+        return
+
     if role >= interaction.guild.me.top_role:
         await interaction.response.send_message(
             "⚠️ My bot's role is not above that role, so I won't be able to assign it. "
@@ -267,7 +281,7 @@ async def verify_set_unverified_role(
         )
         return
 
-    await settings_manager.update(interaction.guild_id, {"unverified_role_id": role.id})
+    await settings_manager.update(interaction.guild.id, {"unverified_role_id": role.id})
     await interaction.response.send_message(
         f"Unverified role set to {role.mention}. New members will get this automatically on join.\n"
         "Remember to also deny **View Channel** for this role on any channels you want hidden "
@@ -285,8 +299,11 @@ async def verify_set_unverified_role(
 @app_commands.checks.has_permissions(manage_guild=True)
 async def verify_set_min_age(
     interaction: discord.Interaction, days: app_commands.Range[int, 0, 3650]
-):
-    await settings_manager.update(interaction.guild_id, {"min_account_age_days": days})
+) -> None:
+    if interaction.guild is None:
+        return
+
+    await settings_manager.update(interaction.guild.id, {"min_account_age_days": days})
 
     if days == 0:
         await interaction.response.send_message(
@@ -304,8 +321,11 @@ async def verify_set_min_age(
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_post(interaction: discord.Interaction):
-    guild_settings = await settings_manager.get(interaction.guild_id)
+async def verify_post(interaction: discord.Interaction) -> None:
+    if interaction.guild is None:
+        return
+
+    guild_settings = await settings_manager.get(interaction.guild.id)
 
     if guild_settings.get("verified_role_id") is None:
         await interaction.response.send_message(
@@ -330,6 +350,12 @@ async def verify_post(interaction: discord.Interaction):
             inline=False,
         )
 
+    if not isinstance(interaction.channel, discord.abc.Messageable):
+        await interaction.response.send_message(
+            "This can't be posted in this type of channel.", ephemeral=True
+        )
+        return
+
     await interaction.channel.send(embed=embed, view=view)
     await interaction.response.send_message(
         "Verification message posted.", ephemeral=True
@@ -342,8 +368,10 @@ async def verify_post(interaction: discord.Interaction):
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
-async def verify_reset(interaction: discord.Interaction):
-    await settings_manager.reset(interaction.guild_id)
+async def verify_reset(interaction: discord.Interaction) -> None:
+    if interaction.guild is None:
+        return
+    await settings_manager.reset(interaction.guild.id)
     await interaction.response.send_message(
         "Verification settings reset to defaults.", ephemeral=True
     )
