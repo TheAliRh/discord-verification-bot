@@ -44,12 +44,18 @@ async def _handle_component_error(
 class BaseView(discord.ui.View):
     async def on_error(
         self, interaction: discord.Interaction, error: Exception, item: discord.ui.Item
-    ):
+    ) -> None:
         await _handle_component_error(
             interaction, error, f"{type(self).__name__} ({type(item).__name__})"
         )
 
 
 class BaseModal(discord.ui.Modal):
-    async def on_error(self, interaction: discord.Interaction, error: Exception):
+    # discord.py's type stub for Modal.on_error incorrectly inherits a
+    # 3-argument signature from discord.py's own internal class also named
+    # "BaseView" (an unrelated coincidental name collision with ours - see
+    # discord.ui.Modal.__mro__). Verified via inspect.signature(discord.ui.Modal.on_error)
+    # that the real runtime signature only takes (interaction, error) - this
+    # override is correct at runtime; only the stub is wrong.
+    async def on_error(self, interaction: discord.Interaction, error: Exception) -> None:  # type: ignore[override]
         await _handle_component_error(interaction, error, type(self).__name__)
