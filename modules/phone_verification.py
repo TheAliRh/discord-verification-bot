@@ -50,7 +50,12 @@ class EnterPhoneCodeModal(BaseModal, title="Enter the code we texted you"):
         self.settings = settings
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        passed, reason = check_answer(interaction.user.id, self.answer.value)
+        if interaction.guild_id is None:
+            return  # this modal is only ever opened from a button inside a guild
+
+        passed, reason = check_answer(
+            interaction.guild_id, interaction.user.id, self.answer.value
+        )
         if passed:
             await service.grant_verified(interaction, self.settings)
         else:
@@ -101,7 +106,8 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         method_settings = self.settings["method_settings"].get("phone", {})
 
         allowed, retry_after = check_and_record(
-            f"phone:{interaction.user.id}", method_settings.get("cooldown_seconds", 60)
+            f"phone:{interaction.guild.id}:{interaction.user.id}",
+            method_settings.get("cooldown_seconds", 60),
         )
         if not allowed:
             await interaction.response.send_message(
@@ -111,7 +117,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             return
 
         code = generate_code(method_settings.get("length", 6), "numeric")
-        store_challenge(interaction.user.id, code)
+        store_challenge(interaction.guild.id, interaction.user.id, code)
 
         try:
             await send_verification_sms(number, code, interaction.guild.name)
