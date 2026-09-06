@@ -20,6 +20,7 @@ data migration for anyone who already has a populated bot.db.
 import json
 import copy
 import logging
+from typing import Any
 import aiosqlite
 from pathlib import Path
 
@@ -27,10 +28,10 @@ from .defaults import DEFAULT_SETTINGS
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent / "database" / "bot.db"
+DB_PATH = Path(__file__).parent.parent / "data" / "bot.db"
 
 
-def _deep_merge(base: dict, override: dict) -> dict:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     """Recursively merge override into a copy of base. override wins on conflicts."""
     result = copy.deepcopy(base)
     for key, value in override.items():
@@ -53,8 +54,8 @@ class SettingsPersistenceError(Exception):
 
 
 class SettingsManager:
-    def __init__(self):
-        self._cache: dict[int, dict] = {}  # guild_id -> settings dict
+    def __init__(self) -> None:
+        self._cache: dict[int, dict[str, Any]] = {}  # guild_id -> settings dict
         self._db: aiosqlite.Connection | None = None
 
     def _require_db(self) -> aiosqlite.Connection:
@@ -84,7 +85,7 @@ class SettingsManager:
             await self._db.close()
             logger.debug("Settings database connection closed")
 
-    async def get(self, guild_id: int) -> dict:
+    async def get(self, guild_id: int) -> dict[str, Any]:
         """
         Return this guild's settings, merged over defaults.
 
@@ -136,7 +137,7 @@ class SettingsManager:
         self._cache[guild_id] = settings
         return settings
 
-    async def update(self, guild_id: int, updates: dict) -> dict:
+    async def update(self, guild_id: int, updates: dict[str, Any]) -> dict[str, Any]:
         """
         Merge `updates` into this guild's existing settings and persist it.
         Example: await settings_manager.update(guild_id, {"method": "captcha"})
@@ -168,7 +169,7 @@ class SettingsManager:
         logger.info("Settings updated for guild %s: %s", guild_id, list(updates.keys()))
         return new_settings
 
-    async def reset(self, guild_id: int) -> dict:
+    async def reset(self, guild_id: int) -> dict[str, Any]:
         """
         Delete a guild's stored settings, reverting it to defaults.
         Raises SettingsPersistenceError if the write fails.
