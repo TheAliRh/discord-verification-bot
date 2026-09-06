@@ -15,14 +15,14 @@ implementations that could quietly drift apart.
 """
 
 import logging
-from typing import cast
+from typing import Any, cast
 
 import discord
 
 logger = logging.getLogger(__name__)
 
 
-async def _log(guild: discord.Guild, settings: dict, message: str) -> None:
+async def _log(guild: discord.Guild, settings: dict[str, Any], message: str) -> None:
     log_channel_id = settings.get("log_channel_id")
     if not log_channel_id:
         return
@@ -44,7 +44,9 @@ async def _log(guild: discord.Guild, settings: dict, message: str) -> None:
         )
 
 
-async def log_event(guild: discord.Guild, settings: dict, message: str) -> None:
+async def log_event(
+    guild: discord.Guild, settings: dict[str, Any], message: str
+) -> None:
     """
     Public entry point for logging from outside this module - e.g. bot.py's
     on_member_join, which needs to record a join or a role-assignment
@@ -55,7 +57,7 @@ async def log_event(guild: discord.Guild, settings: dict, message: str) -> None:
 
 
 async def _assign_verified_role(
-    guild: discord.Guild, member: discord.Member, settings: dict
+    guild: discord.Guild, member: discord.Member, settings: dict[str, Any]
 ) -> tuple[bool, str]:
     """
     Core role-assignment logic, returning (success, human-readable message)
@@ -116,7 +118,9 @@ async def _assign_verified_role(
     return True, "You're verified! Welcome to the server."
 
 
-async def grant_verified(interaction: discord.Interaction, settings: dict) -> None:
+async def grant_verified(
+    interaction: discord.Interaction, settings: dict[str, Any]
+) -> None:
     """Interaction-based entry point - used by button/captcha/email/phone modules."""
     guild = interaction.guild
 
@@ -142,7 +146,7 @@ async def grant_verified(interaction: discord.Interaction, settings: dict) -> No
 
 
 async def grant_verified_by_id(
-    bot: discord.Client, guild_id: int, user_id: int, settings: dict
+    bot: discord.Client, guild_id: int, user_id: int, settings: dict[str, Any]
 ) -> tuple[bool, str]:
     """
     Non-interaction entry point - used by the OAuth2 web callback (web/server.py),
@@ -164,7 +168,9 @@ async def grant_verified_by_id(
 
 
 async def deny_verified(
-    interaction: discord.Interaction, settings: dict, reason: str = "Incorrect answer."
+    interaction: discord.Interaction,
+    settings: dict[str, Any],
+    reason: str = "Incorrect answer.",
 ) -> None:
     """Call when a user fails a verification attempt (e.g. wrong captcha code)."""
     logger.info(
