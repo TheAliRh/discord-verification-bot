@@ -33,11 +33,18 @@ def is_configured() -> bool:
     return all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER])
 
 
-async def send_verification_sms(to_number: str, code: str, guild_name: str):
+async def send_verification_sms(to_number: str, code: str, guild_name: str) -> None:
     if not is_configured():
         raise SMSNotConfigured(
             "TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN / TWILIO_FROM_NUMBER are not set in .env"
         )
+    # is_configured() already confirmed these are non-None, but mypy can't
+    # infer that from a separate function call - narrow explicitly.
+    assert (
+        TWILIO_ACCOUNT_SID is not None
+        and TWILIO_AUTH_TOKEN is not None
+        and TWILIO_FROM_NUMBER is not None
+    )
 
     url = _TWILIO_API_URL.format(sid=TWILIO_ACCOUNT_SID)
     body = {
