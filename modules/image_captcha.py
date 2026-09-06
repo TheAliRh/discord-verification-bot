@@ -17,6 +17,7 @@ Flow:
 import io
 import random
 from pathlib import Path
+from typing import Any
 
 import discord
 from PIL import Image, ImageDraw, ImageFont
@@ -31,7 +32,7 @@ FONT_PATH = Path(__file__).parent.parent / "assets" / "fonts" / "DejaVuSans-Bold
 _IMAGE_SIZE = (220, 90)
 
 
-def _load_font(size: int) -> ImageFont.ImageFont:
+def _load_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
     try:
         return ImageFont.truetype(str(FONT_PATH), size)
     except OSError:
@@ -71,7 +72,7 @@ def render_captcha_image(code: str) -> io.BytesIO:
         char_draw.text((10, 5), char, font=font, fill=color)
 
         angle = random.randint(-25, 25)
-        rotated = char_img.rotate(angle, expand=True, resample=Image.BICUBIC)
+        rotated = char_img.rotate(angle, expand=True, resample=Image.Resampling.BICUBIC)
 
         x = char_spacing * (i + 1) - rotated.width // 2 + random.randint(-5, 5)
         y = (height - rotated.height) // 2 + random.randint(-8, 8)
@@ -92,7 +93,7 @@ def render_captcha_image(code: str) -> io.BytesIO:
 
 
 class ImageCaptchaModal(BaseModal, title="Enter the code from the image"):
-    answer = discord.ui.TextInput(
+    answer: discord.ui.TextInput[Any] = discord.ui.TextInput(
         label="Code", placeholder="e.g. AB3XZ9", max_length=10
     )
 
@@ -100,12 +101,14 @@ class ImageCaptchaModal(BaseModal, title="Enter the code from the image"):
         super().__init__()
         self.settings = settings
 
-    async def on_submit(self, interaction: discord.Interaction):
+    async def on_submit(self, interaction: discord.Interaction) -> None:
         passed, reason = check_answer(interaction.user.id, self.answer.value)
         if passed:
             await service.grant_verified(interaction, self.settings)
         else:
-            await service.deny_verified(interaction, self.settings, reason)
+            await service.deny_verified(
+                interaction, self.settings, reason or "Incorrect answer."
+            )
 
 
 class EnterCodeButton(discord.ui.Button):
@@ -113,7 +116,7 @@ class EnterCodeButton(discord.ui.Button):
         super().__init__(label="Enter Code", style=discord.ButtonStyle.primary)
         self.settings = settings
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
         await interaction.response.send_modal(ImageCaptchaModal(self.settings))
 
 
@@ -138,7 +141,10 @@ class ImageCaptchaButton(discord.ui.Button):
             custom_id="verify:image_captcha:click",
         )
 
-    async def callback(self, interaction: discord.Interaction):
+    async def callback(self, interaction: discord.Interaction) -> None:
+        if interaction.guild_id is None:
+            return  # this button only ever appears on a message inside a guild
+
         from settings import settings_manager
 
         guild_settings = await settings_manager.get(interaction.guild_id)
