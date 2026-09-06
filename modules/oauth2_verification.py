@@ -16,6 +16,8 @@ This module's job ends the moment the link is sent. Everything after that
 happens over HTTP, outside of Discord's interaction system entirely.
 """
 
+from typing import Any
+
 import discord
 from core.base import VerificationModule
 from core.prechecks import passes_prechecks
@@ -36,8 +38,8 @@ class ContinueWithDiscordView(BaseView):
         )
 
 
-class OAuth2VerifyButton(discord.ui.Button):
-    def __init__(self):
+class OAuth2VerifyButton(discord.ui.Button[Any]):
+    def __init__(self) -> None:
         super().__init__(
             label="Verify",
             style=discord.ButtonStyle.success,
@@ -83,7 +85,7 @@ class OAuth2VerifyButton(discord.ui.Button):
 
 
 class OAuth2VerificationView(BaseView):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(OAuth2VerifyButton())
 
@@ -92,5 +94,5 @@ class OAuth2Verification(VerificationModule):
     key = "oauth2"
     display_name = "OAuth2"
 
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         return OAuth2VerificationView()
