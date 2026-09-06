@@ -22,6 +22,19 @@ def test_get_module_falls_back_to_button_for_unknown_key():
     assert get_module("totally_unknown_method") is MODULES["button"]
 
 
+def test_get_module_logs_warning_on_fallback(caplog):
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="modules.registry"):
+        get_module("some_stale_removed_method")
+    assert any(
+        "some_stale_removed_method" in record.message for record in caplog.records
+    )
+    assert any(
+        "falling back to 'button'" in record.message for record in caplog.records
+    )
+
+
 def test_all_persistent_views_returns_one_per_module():
     views = all_persistent_views()
     assert len(views) == len(MODULES)
