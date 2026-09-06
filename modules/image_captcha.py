@@ -97,7 +97,7 @@ class ImageCaptchaModal(BaseModal, title="Enter the code from the image"):
         label="Code", placeholder="e.g. AB3XZ9", max_length=10
     )
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
 
@@ -111,8 +111,8 @@ class ImageCaptchaModal(BaseModal, title="Enter the code from the image"):
             )
 
 
-class EnterCodeButton(discord.ui.Button):
-    def __init__(self, settings: dict):
+class EnterCodeButton(discord.ui.Button[Any]):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(label="Enter Code", style=discord.ButtonStyle.primary)
         self.settings = settings
 
@@ -127,13 +127,13 @@ class EnterCodeView(BaseView):
     if the bot restarts mid-challenge, the user just clicks Verify again.
     """
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(timeout=300)
         self.add_item(EnterCodeButton(settings))
 
 
-class ImageCaptchaButton(discord.ui.Button):
-    def __init__(self):
+class ImageCaptchaButton(discord.ui.Button[Any]):
+    def __init__(self) -> None:
         super().__init__(
             label="Verify",
             style=discord.ButtonStyle.success,
@@ -171,7 +171,7 @@ class ImageCaptchaButton(discord.ui.Button):
 
 
 class ImageCaptchaVerificationView(BaseView):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(ImageCaptchaButton())
 
@@ -180,5 +180,5 @@ class ImageCaptchaVerification(VerificationModule):
     key = "image_captcha"
     display_name = "Captcha (image)"
 
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         return ImageCaptchaVerificationView()
