@@ -15,6 +15,7 @@ This keeps role-assignment, logging, and error handling in one shared place
 """
 
 from abc import ABC, abstractmethod
+from typing import Any
 import discord
 
 
@@ -23,7 +24,7 @@ class VerificationModule(ABC):
     display_name: str  # shown in UI / logs, e.g. "Button", "Captcha"
 
     @abstractmethod
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         """
         Return the discord.ui.View to attach to the verification message
         posted in the server's verify channel. Must be a persistent view
