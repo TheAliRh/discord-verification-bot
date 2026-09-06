@@ -57,7 +57,14 @@ class SettingsManager:
         self._cache: dict[int, dict] = {}  # guild_id -> settings dict
         self._db: aiosqlite.Connection | None = None
 
-    async def init(self):
+    def _require_db(self) -> aiosqlite.Connection:
+        if self._db is None:
+            raise RuntimeError(
+                "SettingsManager.init() must be called before using this method"
+            )
+        return self._db
+
+    async def init(self) -> None:
         """Call once on bot startup before any other method is used."""
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         self._db = await aiosqlite.connect(DB_PATH)
@@ -72,7 +79,7 @@ class SettingsManager:
         await self._db.commit()
         logger.info("Settings database ready at %s", DB_PATH)
 
-    async def close(self):
+    async def close(self) -> None:
         if self._db:
             await self._db.close()
             logger.debug("Settings database connection closed")
@@ -91,8 +98,10 @@ class SettingsManager:
             logger.debug("Settings cache hit for guild %s", guild_id)
             return self._cache[guild_id]
 
+        db = self._require_db()
+
         try:
-            async with self._db.execute(
+            async with db.execute(
                 "SELECT config_json FROM guild_config WHERE guild_id = ?", (guild_id,)
             ) as cursor:
                 row = await cursor.fetchone()
@@ -137,9 +146,10 @@ class SettingsManager:
         """
         current = await self.get(guild_id)
         new_settings = _deep_merge(current, updates)
+        db = self._require_db()
 
         try:
-            await self._db.execute(
+            await db.execute(
                 """
                 INSERT INTO guild_config (guild_id, config_json)
                 VALUES (?, ?)
@@ -147,7 +157,7 @@ class SettingsManager:
                 """,
                 (guild_id, json.dumps(new_settings)),
             )
-            await self._db.commit()
+            await db.commit()
         except Exception as e:
             logger.exception("Failed to persist settings update for guild %s", guild_id)
             raise SettingsPersistenceError(
@@ -163,11 +173,11 @@ class SettingsManager:
         Delete a guild's stored settings, reverting it to defaults.
         Raises SettingsPersistenceError if the write fails.
         """
+        db = self._require_db()
+
         try:
-            await self._db.execute(
-                "DELETE FROM guild_config WHERE guild_id = ?", (guild_id,)
-            )
-            await self._db.commit()
+            await db.execute("DELETE FROM guild_config WHERE guild_id = ?", (guild_id,))
+            await db.commit()
         except Exception as e:
             logger.exception("Failed to reset settings for guild %s", guild_id)
             raise SettingsPersistenceError(
