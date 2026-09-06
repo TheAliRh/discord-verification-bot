@@ -7,6 +7,7 @@ authorizing user's identity so we can confirm it matches who clicked Verify.
 """
 
 import os
+from typing import Any
 from urllib.parse import urlencode
 
 import aiohttp
@@ -60,13 +61,14 @@ async def exchange_code_for_token(code: str) -> str:
     async with aiohttp.ClientSession() as session:
         async with session.post(_TOKEN_URL, data=data, headers=headers) as resp:
             resp.raise_for_status()
-            payload = await resp.json()
-            return payload["access_token"]
+            payload: dict[str, Any] = await resp.json()
+            return str(payload["access_token"])
 
 
-async def fetch_discord_user(access_token: str) -> dict:
+async def fetch_discord_user(access_token: str) -> dict[str, Any]:
     headers = {"Authorization": f"Bearer {access_token}"}
     async with aiohttp.ClientSession() as session:
         async with session.get(_USER_URL, headers=headers) as resp:
             resp.raise_for_status()
-            return await resp.json()
+            data: dict[str, Any] = await resp.json()
+            return data
