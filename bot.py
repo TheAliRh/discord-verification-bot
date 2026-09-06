@@ -1,19 +1,25 @@
 import os
+from dotenv import load_dotenv
+
+# Must happen before importing any of our own modules below: core/email_sender.py,
+# core/sms_sender.py, and core/discord_oauth.py read credentials from the
+# environment as soon as they're imported (not lazily inside a function), so
+# .env has to be loaded into os.environ before those imports run - not after.
+load_dotenv()
+
 import json
 import logging
 import discord
 from discord import app_commands
 from discord.ext import commands
-from dotenv import load_dotenv
 
 from settings import settings_manager
-from modules import get_module, all_persistent_views, MODULES
+from modules import get_module, all_persistent_views
 from ui import SetupView
 from web import start_server
 from core import service
 from core.logging_config import setup_logging
 
-load_dotenv()
 setup_logging()
 logger = logging.getLogger(__name__)
 
@@ -27,9 +33,31 @@ intents.members = True  # required to detect joins later - enable in Dev Portal 
 class VerifyBot(commands.Bot):
     async def setup_hook(self) -> None:
         # setup_hook runs exactly once, before the bot connects to the
-        # gateway - the correct place to start a background service like
-        # the OAuth2 callback server, rather than doing it in on_ready
-        # (which can fire more than once on reconnects).
+        # gateway for the first time - unlike on_ready, which discord.py
+        # can call again after a dropped gateway connection reconnects.
+        # Everything here must be safe to run ONLY once per process, or a
+        # reconnect would repeat it: settings_manager.init() would open a
+        # second (leaked) database connection without closing the first,
+        # add_view() would re-register views that are already registered,
+        # and tree.sync() would re-sync commands against Discord's API for
+        # no reason, burning rate limit budget every time the gateway blips.
+        try:
+            await settings_manager.init()
+        except Exception:
+            logger.critical(
+                "Failed to initialize the settings database (data/bot.db). "
+                "Check that the 'data/' folder exists and is writable. The bot cannot function without this.",
+                exc_info=True,
+            )
+            raise  # nothing else can work without settings - fail loudly and stop
+
+        # Re-register every module's persistent view so buttons on old messages
+        # (sent before this restart) still work.
+        for view in all_persistent_views():
+            self.add_view(view)
+
+        await self.tree.sync()
+
         try:
             self.web_runner = await start_server(self, port=OAUTH_SERVER_PORT)
             logger.info(
@@ -45,33 +73,22 @@ class VerifyBot(commands.Bot):
                 e,
             )
 
+        logger.info(
+            "Settings layer initialized. Persistent views registered. Commands synced."
+        )
+
 
 bot = VerifyBot(command_prefix="!", intents=intents)
 
 
 @bot.event
 async def on_ready() -> None:
-    try:
-        await settings_manager.init()
-    except Exception:
-        logger.critical(
-            "Failed to initialize the settings database (data/bot.db). "
-            "Check that the 'data/' folder exists and is writable. The bot cannot function without this.",
-            exc_info=True,
-        )
-        raise  # nothing else can work without settings - fail loudly and stop
-
-    # Re-register every module's persistent view so buttons on old messages
-    # (sent before this restart) still work. Safe to call every startup -
-    # discord.py just re-attaches the listener by custom_id.
-    for view in all_persistent_views():
-        bot.add_view(view)
-
-    await bot.tree.sync()
-
+    # This CAN fire more than once per process (e.g. after a dropped gateway
+    # connection reconnects) - only safe, idempotent logging belongs here.
+    # All one-time startup work lives in setup_hook() above, which discord.py
+    # guarantees runs exactly once.
     if bot.user is not None:
         logger.info("Logged in as %s (id: %s)", bot.user, bot.user.id)
-    logger.info("Settings layer initialized. Persistent views registered.")
 
 
 @bot.tree.error
@@ -317,7 +334,8 @@ async def verify_set_min_age(
 
 
 @bot.tree.command(
-    name="verify-post", description="Post the verification message in this channel"
+    name="verify-post",
+    description="Post the verification message in the configured verification channel",
 )
 @app_commands.guild_only()
 @app_commands.checks.has_permissions(manage_guild=True)
@@ -333,6 +351,10 @@ async def verify_post(interaction: discord.Interaction) -> None:
         )
         return
 
+    # get_module() already falls back to Button for an unknown/invalid stored
+    # method, so module.display_name below is always safe - unlike indexing
+    # MODULES[guild_settings["method"]] directly, which would raise KeyError
+    # on the exact same invalid value this line is guarding against.
     module = get_module(guild_settings["method"])
     view = module.build_entry_view(guild_settings)
 
@@ -340,7 +362,7 @@ async def verify_post(interaction: discord.Interaction) -> None:
         title="Verification required",
         description=guild_settings.get("welcome_message", "Click below to verify."),
     )
-    embed.set_footer(text=f"Method: {MODULES[guild_settings['method']].display_name}")
+    embed.set_footer(text=f"Method: {module.display_name}")
 
     min_age_days = guild_settings.get("min_account_age_days", 0)
     if min_age_days > 0:
@@ -350,16 +372,53 @@ async def verify_post(interaction: discord.Interaction) -> None:
             inline=False,
         )
 
-    if not isinstance(interaction.channel, discord.abc.Messageable):
+    # Post in the channel configured via /verify setup, not wherever this
+    # command happened to be run - falling back to the current channel only
+    # if none is configured, or the configured one is no longer usable.
+    verify_channel_id = guild_settings.get("verify_channel_id")
+    target_channel: discord.abc.Messageable | None = None
+    fallback_warning: str | None = None
+
+    if verify_channel_id is not None:
+        configured_channel = interaction.guild.get_channel(verify_channel_id)
+        if configured_channel is None:
+            fallback_warning = (
+                f"⚠️ The configured verification channel (<#{verify_channel_id}>) no longer exists - "
+                "posted here instead. Run `/verify setup` to pick a new one."
+            )
+        elif not isinstance(configured_channel, discord.abc.Messageable):
+            fallback_warning = (
+                f"⚠️ The configured verification channel (<#{verify_channel_id}>) isn't a channel "
+                "type I can post in - posted here instead. Run `/verify setup` to pick a new one."
+            )
+        else:
+            target_channel = configured_channel
+
+    if target_channel is None:
+        if not isinstance(interaction.channel, discord.abc.Messageable):
+            await interaction.response.send_message(
+                "This can't be posted in this type of channel, and no valid verification "
+                "channel is configured. Run `/verify setup` to pick one.",
+                ephemeral=True,
+            )
+            return
+        target_channel = interaction.channel
+
+    try:
+        await target_channel.send(embed=embed, view=view)
+    except discord.Forbidden:
+        channel_mention = getattr(target_channel, "mention", "that channel")
         await interaction.response.send_message(
-            "This can't be posted in this type of channel.", ephemeral=True
+            f"I don't have permission to post in {channel_mention}. Check my channel permissions there.",
+            ephemeral=True,
         )
         return
 
-    await interaction.channel.send(embed=embed, view=view)
-    await interaction.response.send_message(
-        "Verification message posted.", ephemeral=True
-    )
+    channel_mention = getattr(target_channel, "mention", "this channel")
+    confirmation = f"Verification message posted in {channel_mention}."
+    if fallback_warning:
+        confirmation = f"{fallback_warning}\n{confirmation}"
+    await interaction.response.send_message(confirmation, ephemeral=True)
 
 
 @bot.tree.command(
