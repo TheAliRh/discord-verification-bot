@@ -45,7 +45,7 @@ class EnterEmailCodeModal(BaseModal, title="Enter the code we emailed you"):
         label="Code", placeholder="e.g. AB3XZ9", max_length=10
     )
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
 
@@ -59,8 +59,8 @@ class EnterEmailCodeModal(BaseModal, title="Enter the code we emailed you"):
             )
 
 
-class EnterEmailCodeButton(discord.ui.Button):
-    def __init__(self, settings: dict):
+class EnterEmailCodeButton(discord.ui.Button[Any]):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(label="Enter Code", style=discord.ButtonStyle.primary)
         self.settings = settings
 
@@ -69,7 +69,7 @@ class EnterEmailCodeButton(discord.ui.Button):
 
 
 class EnterEmailCodeView(BaseView):
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__(timeout=300)
         self.add_item(EnterEmailCodeButton(settings))
 
@@ -79,7 +79,7 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         label="Your email address", placeholder="you@example.com"
     )
 
-    def __init__(self, settings: dict):
+    def __init__(self, settings: dict[str, Any]):
         super().__init__()
         self.settings = settings
 
@@ -148,8 +148,8 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         )
 
 
-class EmailVerifyButton(discord.ui.Button):
-    def __init__(self):
+class EmailVerifyButton(discord.ui.Button[Any]):
+    def __init__(self) -> None:
         super().__init__(
             label="Verify",
             style=discord.ButtonStyle.success,
@@ -172,7 +172,7 @@ class EmailVerifyButton(discord.ui.Button):
 
 
 class EmailVerificationView(BaseView):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(timeout=None)  # persists across restarts
         self.add_item(EmailVerifyButton())
 
@@ -181,5 +181,5 @@ class EmailVerification(VerificationModule):
     key = "email"
     display_name = "Email"
 
-    def build_entry_view(self, settings: dict) -> discord.ui.View:
+    def build_entry_view(self, settings: dict[str, Any]) -> discord.ui.View:
         return EmailVerificationView()
