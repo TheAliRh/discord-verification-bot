@@ -50,7 +50,12 @@ class EnterEmailCodeModal(BaseModal, title="Enter the code we emailed you"):
         self.settings = settings
 
     async def on_submit(self, interaction: discord.Interaction) -> None:
-        passed, reason = check_answer(interaction.user.id, self.answer.value)
+        if interaction.guild_id is None:
+            return  # this modal is only ever opened from a button inside a guild
+
+        passed, reason = check_answer(
+            interaction.guild_id, interaction.user.id, self.answer.value
+        )
         if passed:
             await service.grant_verified(interaction, self.settings)
         else:
@@ -99,7 +104,8 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         method_settings = self.settings["method_settings"].get("email", {})
 
         allowed, retry_after = check_and_record(
-            f"email:{interaction.user.id}", method_settings.get("cooldown_seconds", 60)
+            f"email:{interaction.guild.id}:{interaction.user.id}",
+            method_settings.get("cooldown_seconds", 60),
         )
         if not allowed:
             await interaction.response.send_message(
@@ -109,7 +115,7 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
             return
 
         code = generate_code(method_settings.get("length", 6), "alphanumeric")
-        store_challenge(interaction.user.id, code)
+        store_challenge(interaction.guild.id, interaction.user.id, code)
 
         try:
             await send_verification_email(address, code, interaction.guild.name)
