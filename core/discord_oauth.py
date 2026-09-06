@@ -4,6 +4,10 @@ Minimal Discord OAuth2 client.
 Three responsibilities: build the authorize URL a user's browser is sent
 to, exchange the code Discord returns for an access token, and fetch the
 authorizing user's identity so we can confirm it matches who clicked Verify.
+
+Credentials are read fresh from os.environ on every call rather than cached
+as module-level constants at import time - see core/email_sender.py's
+docstring for why that matters (import-order fragility).
 """
 
 import os
@@ -11,12 +15,6 @@ from typing import Any
 from urllib.parse import urlencode
 
 import aiohttp
-
-DISCORD_CLIENT_ID = os.getenv("DISCORD_CLIENT_ID")
-DISCORD_CLIENT_SECRET = os.getenv("DISCORD_CLIENT_SECRET")
-OAUTH_REDIRECT_URI = os.getenv(
-    "OAUTH_REDIRECT_URI", "http://localhost:8080/oauth/callback"
-)
 
 _AUTHORIZE_URL = "https://discord.com/oauth2/authorize"
 _TOKEN_URL = "https://discord.com/api/oauth2/token"
@@ -28,7 +26,7 @@ class OAuthNotConfigured(Exception):
 
 
 def is_configured() -> bool:
-    return all([DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET])
+    return all([os.getenv("DISCORD_CLIENT_ID"), os.getenv("DISCORD_CLIENT_SECRET")])
 
 
 def build_authorize_url(state: str) -> str:
@@ -37,9 +35,12 @@ def build_authorize_url(state: str) -> str:
             "DISCORD_CLIENT_ID / DISCORD_CLIENT_SECRET are not set in .env"
         )
 
+    redirect_uri = os.getenv(
+        "OAUTH_REDIRECT_URI", "http://localhost:8080/oauth/callback"
+    )
     params = {
-        "client_id": DISCORD_CLIENT_ID,
-        "redirect_uri": OAUTH_REDIRECT_URI,
+        "client_id": os.getenv("DISCORD_CLIENT_ID"),
+        "redirect_uri": redirect_uri,
         "response_type": "code",
         "scope": "identify",
         "state": state,
@@ -49,12 +50,15 @@ def build_authorize_url(state: str) -> str:
 
 
 async def exchange_code_for_token(code: str) -> str:
+    redirect_uri = os.getenv(
+        "OAUTH_REDIRECT_URI", "http://localhost:8080/oauth/callback"
+    )
     data = {
-        "client_id": DISCORD_CLIENT_ID,
-        "client_secret": DISCORD_CLIENT_SECRET,
+        "client_id": os.getenv("DISCORD_CLIENT_ID"),
+        "client_secret": os.getenv("DISCORD_CLIENT_SECRET"),
         "grant_type": "authorization_code",
         "code": code,
-        "redirect_uri": OAUTH_REDIRECT_URI,
+        "redirect_uri": redirect_uri,
     }
     headers = {"Content-Type": "application/x-www-form-urlencoded"}
 
