@@ -47,7 +47,7 @@ class WelcomeMessageModal(BaseModal, title="Customize Welcome Message"):
         )
 
 
-class MethodSelect(discord.ui.Select):
+class MethodSelect(discord.ui.Select[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(
@@ -65,7 +65,7 @@ class MethodSelect(discord.ui.Select):
         )
 
 
-class VerifiedRoleSelect(discord.ui.RoleSelect):
+class VerifiedRoleSelect(discord.ui.RoleSelect[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(
@@ -90,7 +90,7 @@ class VerifiedRoleSelect(discord.ui.RoleSelect):
         )
 
 
-class VerifyChannelSelect(discord.ui.ChannelSelect):
+class VerifyChannelSelect(discord.ui.ChannelSelect[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(
@@ -108,7 +108,7 @@ class VerifyChannelSelect(discord.ui.ChannelSelect):
         )
 
 
-class EditWelcomeMessageButton(discord.ui.Button):
+class EditWelcomeMessageButton(discord.ui.Button[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(
@@ -119,7 +119,7 @@ class EditWelcomeMessageButton(discord.ui.Button):
         await interaction.response.send_modal(WelcomeMessageModal(self.wizard_view))
 
 
-class FinishSetupButton(discord.ui.Button):
+class FinishSetupButton(discord.ui.Button[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(label="Save Setup", style=discord.ButtonStyle.success, row=3)
@@ -158,7 +158,7 @@ class FinishSetupButton(discord.ui.Button):
         )
 
 
-class CancelSetupButton(discord.ui.Button):
+class CancelSetupButton(discord.ui.Button[Any]):
     def __init__(self, wizard_view: "SetupView"):
         self.wizard_view = wizard_view
         super().__init__(label="Cancel", style=discord.ButtonStyle.danger, row=3)
@@ -180,7 +180,7 @@ class SetupView(BaseView):
     the setup wizard only needs to survive one admin's active session.
     """
 
-    def __init__(self, current_settings: dict):
+    def __init__(self, current_settings: dict[str, Any]):
         super().__init__(timeout=300)
         self.method = current_settings.get("method", "button")
         self.verified_role_id = current_settings.get("verified_role_id")
