@@ -17,7 +17,7 @@ In-memory only: fine for a single-process bot. If you ever run multiple
 processes/shards sharing state, swap this for Redis or the DB.
 """
 
-import random
+import secrets
 import string
 import time
 from typing import Any
@@ -35,8 +35,15 @@ _SAFE_NUMERIC = "".join(c for c in string.digits if c not in "01")
 
 
 def generate_code(length: int = 6, kind: str = "alphanumeric") -> str:
+    # secrets.choice() (not random.choice()/random.choices()) - this code IS
+    # the secret being verified, so it needs a cryptographically secure
+    # source. Python's `random` module uses a Mersenne Twister PRNG, which
+    # is fast but NOT safe for anything security-sensitive: its output is
+    # statistically predictable from past outputs, so `secrets` (backed by
+    # os.urandom()) is required here, same as for any token, password, or
+    # session ID.
     alphabet = _SAFE_NUMERIC if kind == "numeric" else _SAFE_ALPHANUMERIC
-    return "".join(random.choices(alphabet, k=length))
+    return "".join(secrets.choice(alphabet) for _ in range(length))
 
 
 def store_challenge(
