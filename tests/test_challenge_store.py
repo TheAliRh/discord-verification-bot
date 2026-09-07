@@ -24,6 +24,28 @@ def test_generate_code_numeric_excludes_ambiguous_digits():
         assert "0" not in code and "1" not in code
 
 
+def test_generate_code_uses_secrets_not_random():
+    """
+    Security-sensitive codes must come from a cryptographically secure
+    source. Python's `random` module (Mersenne Twister) is predictable
+    from past output and must never back an actual verification secret -
+    only `secrets` (backed by os.urandom()) is acceptable here.
+    """
+    import secrets as secrets_module
+    from unittest.mock import patch
+    import core.challenge_store as challenge_store_module
+
+    assert challenge_store_module.secrets is secrets_module
+
+    with patch(
+        "core.challenge_store.secrets.choice", wraps=secrets_module.choice
+    ) as spy:
+        code = generate_code(6, "alphanumeric")
+
+    assert spy.call_count == 6  # one secrets.choice() call per character
+    assert len(code) == 6
+
+
 def test_correct_answer_passes():
     store_challenge(guild_id=100, user_id=1, code="ABC234")
     passed, reason = check_answer(100, 1, "ABC234")
