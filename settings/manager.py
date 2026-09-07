@@ -28,7 +28,7 @@ from .defaults import DEFAULT_SETTINGS
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent / "data" / "bot.db"
+DB_PATH = Path(__file__).parent.parent / "database" / "bot.db"
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
