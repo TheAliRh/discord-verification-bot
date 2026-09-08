@@ -116,7 +116,6 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             return
 
         code = generate_code(method_settings.get("length", 6), "numeric")
-        store_challenge(interaction.guild.id, interaction.user.id, code)
 
         try:
             await send_verification_sms(number, code, interaction.guild.name)
@@ -154,8 +153,10 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             )
             return
 
-        # Only record the rate limit now that the SMS was actually sent -
-        # a failed attempt above must not cost the user their cooldown window.
+        # Only store the challenge and record the rate limit now that the SMS
+        # was actually sent - doing this beforehand would leave a valid,
+        # checkable code sitting active for a message the user never received.
+        store_challenge(interaction.guild.id, interaction.user.id, code)
         record(rate_limit_key)
         logger.info(
             "Sent verification SMS for user %s in guild %s",
