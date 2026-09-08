@@ -54,6 +54,8 @@ class FakeMember:
         self.removed_roles = []
         self.dms_sent = []
         self.dm_forbidden = False
+        self.kicked = False
+        self.kick_forbidden = False
 
     async def add_roles(self, role, reason=None):
         self.added_roles.append(role.id)
@@ -67,6 +69,11 @@ class FakeMember:
         if self.dm_forbidden:
             raise discord.Forbidden(response=FakeHTTPResponse(), message="DMs closed")
         self.dms_sent.append(content)
+
+    async def kick(self, reason=None):
+        if self.kick_forbidden:
+            raise discord.Forbidden(response=FakeHTTPResponse(), message="Cannot kick")
+        self.kicked = True
 
     def __str__(self):
         return f"{self.name}#0001"
@@ -179,17 +186,19 @@ def reset_in_memory_stores():
     between tests, one test's data can leak into another and cause
     order-dependent failures.
     """
-    from core import challenge_store, rate_limiter, oauth_state
+    from core import challenge_store, rate_limiter, oauth_state, attempt_tracker
 
     challenge_store._CHALLENGES.clear()
     rate_limiter._LAST_ACTION.clear()
     oauth_state._STATES.clear()
+    attempt_tracker._ATTEMPTS.clear()
 
     yield
 
     challenge_store._CHALLENGES.clear()
     rate_limiter._LAST_ACTION.clear()
     oauth_state._STATES.clear()
+    attempt_tracker._ATTEMPTS.clear()
 
 
 @pytest.fixture
