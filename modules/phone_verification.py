@@ -24,7 +24,7 @@ from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
-from core.rate_limiter import check_and_record
+from core.rate_limiter import is_allowed, record
 from core.sms_sender import send_verification_sms, SMSNotConfigured, SMSSendError
 from core.ui_base import BaseView, BaseModal
 
@@ -104,11 +104,10 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             return
 
         method_settings = self.settings["method_settings"].get("phone", {})
+        rate_limit_key = f"phone:{interaction.guild.id}:{interaction.user.id}"
+        cooldown_seconds = method_settings.get("cooldown_seconds", 60)
 
-        allowed, retry_after = check_and_record(
-            f"phone:{interaction.guild.id}:{interaction.user.id}",
-            method_settings.get("cooldown_seconds", 60),
-        )
+        allowed, retry_after = is_allowed(rate_limit_key, cooldown_seconds)
         if not allowed:
             await interaction.response.send_message(
                 f"Please wait {int(retry_after) + 1} more second(s) before requesting another code.",
@@ -155,6 +154,9 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             )
             return
 
+        # Only record the rate limit now that the SMS was actually sent -
+        # a failed attempt above must not cost the user their cooldown window.
+        record(rate_limit_key)
         logger.info(
             "Sent verification SMS for user %s in guild %s",
             interaction.user.id,
