@@ -19,6 +19,8 @@ from typing import Any, cast
 
 import discord
 
+from . import attempt_tracker
+
 logger = logging.getLogger(__name__)
 
 
@@ -115,6 +117,7 @@ async def _assign_verified_role(
 
     logger.info("%s (%s) passed verification in guild %s", member, member.id, guild.id)
     await _log(guild, settings, f"✅ {member} ({member.id}) passed verification.")
+    attempt_tracker.reset_attempts(guild.id, member.id)
     return True, "You're verified! Welcome to the server."
 
 
@@ -171,8 +174,24 @@ async def deny_verified(
     interaction: discord.Interaction,
     settings: dict[str, Any],
     reason: str = "Incorrect answer.",
+    *,
+    count_as_attempt: bool = True,
+    suggest_retry: bool = True,
 ) -> None:
-    """Call when a user fails a verification attempt (e.g. wrong captcha code)."""
+    """
+    Call when a user fails a verification attempt (e.g. wrong captcha code).
+
+    count_as_attempt controls whether this failure counts toward the guild's
+    max_attempts limit. Only genuine wrong-guess failures (bad code, expired
+    code) should count - a precheck rejection (account too new, already
+    locked out) is a different kind of denial and must NOT also consume an
+    attempt, or those checks would compound with the attempt limit in a
+    confusing way.
+
+    suggest_retry controls whether "Click Verify to try again." is appended -
+    set to False when the reason itself already explains why retrying right
+    now won't help (e.g. a lockout notice with a cooldown timer).
+    """
     logger.info(
         "%s (%s) failed verification in guild %s: %s",
         interaction.user,
@@ -180,12 +199,85 @@ async def deny_verified(
         interaction.guild_id,
         reason,
     )
-    await interaction.response.send_message(
-        f"❌ {reason} Click Verify to try again.", ephemeral=True
-    )
-    if interaction.guild is not None:
+
+    guild = interaction.guild
+    final_reason = f"{reason} Click Verify to try again." if suggest_retry else reason
+
+    if count_as_attempt and guild is not None:
+        max_attempts: int = settings.get("max_attempts", 0)
+        if max_attempts > 0:
+            attempt_count = attempt_tracker.record_failed_attempt(
+                guild.id, interaction.user.id
+            )
+            remaining = max_attempts - attempt_count
+
+            if remaining > 0:
+                final_reason = (
+                    f"{reason} {remaining} attempt(s) remaining before a temporary lockout. "
+                    "Click Verify to try again."
+                )
+            else:
+                cooldown_seconds: int = settings.get("cooldown_seconds", 30)
+                attempt_tracker.lock_out(
+                    guild.id, interaction.user.id, cooldown_seconds
+                )
+                logger.warning(
+                    "%s (%s) hit max_attempts (%s) for verification in guild %s",
+                    interaction.user,
+                    interaction.user.id,
+                    max_attempts,
+                    guild.id,
+                )
+                await _log(
+                    guild,
+                    settings,
+                    f"🔒 {interaction.user} locked out after {max_attempts} failed attempts.",
+                )
+
+                if settings.get("kick_on_fail", False):
+                    member = cast(discord.Member, interaction.user)
+                    try:
+                        await member.kick(
+                            reason=f"Exceeded max verification attempts ({max_attempts})"
+                        )
+                        final_reason = (
+                            f"{reason} You've reached the maximum of {max_attempts} failed attempts "
+                            "and have been removed from the server."
+                        )
+                        logger.warning(
+                            "%s (%s) kicked from guild %s after exceeding max_attempts",
+                            member,
+                            member.id,
+                            guild.id,
+                        )
+                        await _log(
+                            guild,
+                            settings,
+                            f"👢 {member} kicked after exceeding max verification attempts.",
+                        )
+                    except discord.Forbidden:
+                        logger.warning(
+                            "Missing permission to kick %s from guild %s",
+                            member,
+                            guild.id,
+                        )
+                        await _log(
+                            guild,
+                            settings,
+                            f"⚠️ Missing permission to kick {member} after max attempts.",
+                        )
+                        final_reason = (
+                            f"{reason} You've reached the maximum of {max_attempts} failed attempts. "
+                            f"Try again in {cooldown_seconds} second(s)."
+                        )
+                else:
+                    final_reason = (
+                        f"{reason} You've reached the maximum of {max_attempts} failed attempts. "
+                        f"Try again in {cooldown_seconds} second(s)."
+                    )
+
+    await interaction.response.send_message(f"❌ {final_reason}", ephemeral=True)
+    if guild is not None:
         await _log(
-            interaction.guild,
-            settings,
-            f"❌ {interaction.user} failed verification: {reason}",
+            guild, settings, f"❌ {interaction.user} failed verification: {reason}"
         )
