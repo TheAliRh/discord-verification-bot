@@ -334,6 +334,32 @@ async def verify_set_min_age(
 
 
 @bot.tree.command(
+    name="verify-toggle",
+    description="Turn verification on or off entirely for this server",
+)
+@app_commands.describe(enabled="True to turn verification on, False to turn it off")
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+async def verify_toggle(interaction: discord.Interaction, enabled: bool) -> None:
+    if interaction.guild is None:
+        return
+
+    await settings_manager.update(interaction.guild.id, {"enabled": enabled})
+
+    if enabled:
+        await interaction.response.send_message(
+            "Verification turned **on**. New joins will be gated, and the Verify button will work again.",
+            ephemeral=True,
+        )
+    else:
+        await interaction.response.send_message(
+            "Verification turned **off**. New members won't be gated, and clicking Verify will be rejected "
+            "until this is turned back on. Any already-posted Verify button will start showing that message too.",
+            ephemeral=True,
+        )
+
+
+@bot.tree.command(
     name="verify-post",
     description="Post the verification message in the configured verification channel",
 )
@@ -344,6 +370,14 @@ async def verify_post(interaction: discord.Interaction) -> None:
         return
 
     guild_settings = await settings_manager.get(interaction.guild.id)
+
+    if not guild_settings.get("enabled", True):
+        await interaction.response.send_message(
+            "Verification is currently turned off for this server, so posting a Verify button "
+            "would just reject everyone who clicks it. Run `/verify-toggle enabled:True` first.",
+            ephemeral=True,
+        )
+        return
 
     if guild_settings.get("verified_role_id") is None:
         await interaction.response.send_message(
