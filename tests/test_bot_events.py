@@ -333,6 +333,57 @@ async def test_verify_post_does_not_crash_on_invalid_stored_method(bot_module):
     assert "Button" in embed.footer.text  # fell back to Button's display name
 
 
+async def test_verify_post_refuses_when_verification_disabled(bot_module):
+    from tests.conftest import FakeGuild, FakeRole
+
+    channel = _FakeChannel(channel_id=999)
+    guild = FakeGuild(guild_id=5, roles=[FakeRole(100)])
+    guild.get_channel = lambda cid: None
+
+    await bot_module.settings_manager.init()
+    await bot_module.settings_manager.update(
+        5, {"verified_role_id": 100, "enabled": False}
+    )
+
+    interaction = _make_command_interaction(guild, channel)
+    await bot_module.verify_post.callback(interaction)
+
+    assert len(channel.sent) == 0  # nothing was posted
+    assert "turned off" in interaction.response.sent[0].lower()
+
+
+# --- /verify-toggle: previously there was NO way at all to set 'enabled' ---
+
+
+async def test_verify_toggle_turns_verification_off(bot_module):
+    from tests.conftest import FakeGuild
+
+    guild = FakeGuild(guild_id=6)
+    await bot_module.settings_manager.init()
+
+    interaction = _make_command_interaction(guild, _FakeChannel(channel_id=1))
+    await bot_module.verify_toggle.callback(interaction, False)
+
+    saved = await bot_module.settings_manager.get(6)
+    assert saved["enabled"] is False
+    assert "off" in interaction.response.sent[0].lower()
+
+
+async def test_verify_toggle_turns_verification_back_on(bot_module):
+    from tests.conftest import FakeGuild
+
+    guild = FakeGuild(guild_id=7)
+    await bot_module.settings_manager.init()
+    await bot_module.settings_manager.update(7, {"enabled": False})
+
+    interaction = _make_command_interaction(guild, _FakeChannel(channel_id=1))
+    await bot_module.verify_toggle.callback(interaction, True)
+
+    saved = await bot_module.settings_manager.get(7)
+    assert saved["enabled"] is True
+    assert "on" in interaction.response.sent[0].lower()
+
+
 def _make_command_interaction(guild, channel):
     from tests.conftest import FakeMember, FakeResponse
 
