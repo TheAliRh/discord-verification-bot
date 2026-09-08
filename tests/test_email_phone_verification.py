@@ -2,6 +2,7 @@ from unittest.mock import AsyncMock, patch
 
 import modules.email_verification as email_mod
 import modules.phone_verification as phone_mod
+from core.challenge_store import check_answer
 from tests.conftest import FakeInteraction, FakeMember
 
 
@@ -221,3 +222,91 @@ async def test_email_successful_send_still_enforces_the_cooldown():
 
     assert send_mock.call_count == 1  # second attempt correctly blocked
     assert "wait" in interaction2.response.sent[0].lower()
+
+
+# --- The actual bug being fixed: a failed send must leave no active challenge ---
+
+
+async def test_email_failed_send_leaves_no_active_challenge():
+    """
+    Regression test: previously the challenge was stored BEFORE attempting
+    delivery, so a failed send (SMTP down, etc.) would leave a valid,
+    checkable code sitting active for an email the user never received.
+    """
+    settings = {"method_settings": {"email": {"length": 6, "cooldown_seconds": 60}}}
+    member = FakeMember(user_id=201)
+    guild_id = 1000  # FakeGuild's default id
+
+    with patch.object(
+        email_mod,
+        "send_verification_email",
+        AsyncMock(side_effect=RuntimeError("simulated SMTP failure")),
+    ):
+        modal = email_mod.EmailAddressModal(settings)
+        modal.email._value = "user@example.com"
+        await modal.on_submit(FakeInteraction(user=member))
+
+    # No challenge should exist at all - not even a guessable/expired stub
+    passed, reason = check_answer(guild_id, member.id, "ANYTHING")
+    assert passed is False
+    assert reason == "No active code found. Click Verify to get a new one."
+
+
+async def test_email_not_configured_leaves_no_active_challenge():
+    settings = {"method_settings": {"email": {"length": 6, "cooldown_seconds": 60}}}
+    member = FakeMember(user_id=202)
+    guild_id = 1000
+
+    with patch.object(
+        email_mod,
+        "send_verification_email",
+        AsyncMock(side_effect=email_mod.EmailNotConfigured()),
+    ):
+        modal = email_mod.EmailAddressModal(settings)
+        modal.email._value = "user@example.com"
+        await modal.on_submit(FakeInteraction(user=member))
+
+    passed, reason = check_answer(guild_id, member.id, "ANYTHING")
+    assert passed is False
+    assert reason == "No active code found. Click Verify to get a new one."
+
+
+async def test_email_successful_send_does_leave_an_active_challenge():
+    """The mirror case: a genuinely successful send SHOULD leave a checkable challenge."""
+    settings = {"method_settings": {"email": {"length": 6, "cooldown_seconds": 60}}}
+    member = FakeMember(user_id=203)
+    guild_id = 1000
+
+    sent_codes = {}
+
+    async def capture_send(address, code, guild_name):
+        sent_codes["code"] = code
+
+    with patch.object(email_mod, "send_verification_email", capture_send):
+        modal = email_mod.EmailAddressModal(settings)
+        modal.email._value = "user@example.com"
+        await modal.on_submit(FakeInteraction(user=member))
+
+    assert "code" in sent_codes
+    passed, reason = check_answer(guild_id, member.id, sent_codes["code"])
+    assert passed is True
+    assert reason is None
+
+
+async def test_phone_failed_send_leaves_no_active_challenge():
+    settings = {"method_settings": {"phone": {"length": 6, "cooldown_seconds": 60}}}
+    member = FakeMember(user_id=204)
+    guild_id = 1000
+
+    with patch.object(
+        phone_mod,
+        "send_verification_sms",
+        AsyncMock(side_effect=phone_mod.SMSSendError("rejected")),
+    ):
+        modal = phone_mod.PhoneNumberModal(settings)
+        modal.phone_number._value = "+14155551234"
+        await modal.on_submit(FakeInteraction(user=member))
+
+    passed, reason = check_answer(guild_id, member.id, "ANYTHING")
+    assert passed is False
+    assert reason == "No active code found. Click Verify to get a new one."
