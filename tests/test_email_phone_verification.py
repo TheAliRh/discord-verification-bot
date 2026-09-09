@@ -247,7 +247,7 @@ async def test_email_failed_send_leaves_no_active_challenge():
         await modal.on_submit(FakeInteraction(user=member))
 
     # No challenge should exist at all - not even a guessable/expired stub
-    passed, reason = check_answer(guild_id, member.id, "ANYTHING")
+    passed, reason = check_answer(guild_id, member.id, "email", "ANYTHING")
     assert passed is False
     assert reason == "No active code found. Click Verify to get a new one."
 
@@ -266,7 +266,7 @@ async def test_email_not_configured_leaves_no_active_challenge():
         modal.email._value = "user@example.com"
         await modal.on_submit(FakeInteraction(user=member))
 
-    passed, reason = check_answer(guild_id, member.id, "ANYTHING")
+    passed, reason = check_answer(guild_id, member.id, "email", "ANYTHING")
     assert passed is False
     assert reason == "No active code found. Click Verify to get a new one."
 
@@ -288,7 +288,7 @@ async def test_email_successful_send_does_leave_an_active_challenge():
         await modal.on_submit(FakeInteraction(user=member))
 
     assert "code" in sent_codes
-    passed, reason = check_answer(guild_id, member.id, sent_codes["code"])
+    passed, reason = check_answer(guild_id, member.id, "email", sent_codes["code"])
     assert passed is True
     assert reason is None
 
@@ -307,7 +307,7 @@ async def test_phone_failed_send_leaves_no_active_challenge():
         modal.phone_number._value = "+14155551234"
         await modal.on_submit(FakeInteraction(user=member))
 
-    passed, reason = check_answer(guild_id, member.id, "ANYTHING")
+    passed, reason = check_answer(guild_id, member.id, "phone", "ANYTHING")
     assert passed is False
     assert reason == "No active code found. Click Verify to get a new one."
 
