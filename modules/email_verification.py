@@ -21,7 +21,7 @@ from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
-from core.rate_limiter import is_allowed, record
+from core.rate_limiter import is_allowed, record, get_destination_cooldown_seconds
 from core.email_sender import send_verification_email, EmailNotConfigured
 from core.ui_base import BaseView, BaseModal
 
@@ -113,8 +113,24 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
             )
             return
 
+        # Destination-scoped limit: global (no guild_id), and NOT using this
+        # guild's own cooldown_seconds - see core/rate_limiter.py's docstring
+        # for why. This is what actually stops many different Discord
+        # accounts (or accounts in different guilds) from all sending codes
+        # to the same real inbox in a burst.
+        destination_key = f"email_dest:{address.lower()}"
+        destination_allowed, destination_retry_after = is_allowed(
+            destination_key, get_destination_cooldown_seconds()
+        )
+        if not destination_allowed:
+            await interaction.response.send_message(
+                "That email address was used very recently for another verification attempt. "
+                f"Please wait {int(destination_retry_after) + 1} more second(s), or use a different address.",
+                ephemeral=True,
+            )
+            return
+
         code = generate_code(method_settings.get("length", 6), "alphanumeric")
-        store_challenge(interaction.guild.id, interaction.user.id, code)
 
         try:
             await send_verification_email(address, code, interaction.guild.name)
@@ -140,9 +156,12 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
             )
             return
 
-        # Only record the rate limit now that the email was actually sent -
-        # a failed attempt above must not cost the user their cooldown window.
+        # Only store the challenge and record the rate limits now that the email
+        # was actually sent - doing this beforehand would leave a valid,
+        # checkable code sitting active for a message the user never received.
+        store_challenge(interaction.guild.id, interaction.user.id, code)
         record(rate_limit_key)
+        record(destination_key)
         logger.info(
             "Sent verification email for user %s in guild %s",
             interaction.user.id,

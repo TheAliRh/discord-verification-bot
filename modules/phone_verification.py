@@ -24,7 +24,7 @@ from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
-from core.rate_limiter import is_allowed, record
+from core.rate_limiter import is_allowed, record, get_destination_cooldown_seconds
 from core.sms_sender import send_verification_sms, SMSNotConfigured, SMSSendError
 from core.ui_base import BaseView, BaseModal
 
@@ -115,8 +115,24 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             )
             return
 
+        # Destination-scoped limit: global (no guild_id), and NOT using this
+        # guild's own cooldown_seconds - see core/rate_limiter.py's docstring
+        # for why. This is what actually stops many different Discord
+        # accounts (or accounts in different guilds) from all texting codes
+        # to the same real phone number in a burst.
+        destination_key = f"phone_dest:{number}"
+        destination_allowed, destination_retry_after = is_allowed(
+            destination_key, get_destination_cooldown_seconds()
+        )
+        if not destination_allowed:
+            await interaction.response.send_message(
+                "That phone number was used very recently for another verification attempt. "
+                f"Please wait {int(destination_retry_after) + 1} more second(s), or use a different number.",
+                ephemeral=True,
+            )
+            return
+
         code = generate_code(method_settings.get("length", 6), "numeric")
-        store_challenge(interaction.guild.id, interaction.user.id, code)
 
         try:
             await send_verification_sms(number, code, interaction.guild.name)
@@ -154,9 +170,12 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             )
             return
 
-        # Only record the rate limit now that the SMS was actually sent -
-        # a failed attempt above must not cost the user their cooldown window.
+        # Only store the challenge and record the rate limit now that the SMS
+        # was actually sent - doing this beforehand would leave a valid,
+        # checkable code sitting active for a message the user never received.
+        store_challenge(interaction.guild.id, interaction.user.id, code)
         record(rate_limit_key)
+        record(destination_key)
         logger.info(
             "Sent verification SMS for user %s in guild %s",
             interaction.user.id,

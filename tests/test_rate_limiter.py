@@ -1,5 +1,5 @@
 import time
-from core.rate_limiter import is_allowed, record
+from core.rate_limiter import is_allowed, record, get_destination_cooldown_seconds
 
 
 def test_first_check_is_allowed():
@@ -73,3 +73,25 @@ def test_successful_action_does_start_a_cooldown():
     allowed_retry, retry_after = is_allowed("email:1", cooldown_seconds=60)
     assert allowed_retry is False
     assert 0 < retry_after <= 60
+
+
+# --- Destination cooldown: read lazily from the environment, sane default ---
+
+
+def test_destination_cooldown_defaults_to_60(monkeypatch):
+    monkeypatch.delenv("DESTINATION_COOLDOWN_SECONDS", raising=False)
+    assert get_destination_cooldown_seconds() == 60
+
+
+def test_destination_cooldown_respects_env_var(monkeypatch):
+    monkeypatch.setenv("DESTINATION_COOLDOWN_SECONDS", "120")
+    assert get_destination_cooldown_seconds() == 120
+
+
+def test_destination_cooldown_read_fresh_each_call(monkeypatch):
+    """Must not be cached at import time - changing the env var must take effect immediately."""
+    monkeypatch.setenv("DESTINATION_COOLDOWN_SECONDS", "30")
+    assert get_destination_cooldown_seconds() == 30
+
+    monkeypatch.setenv("DESTINATION_COOLDOWN_SECONDS", "90")
+    assert get_destination_cooldown_seconds() == 90

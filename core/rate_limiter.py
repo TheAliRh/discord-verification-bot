@@ -15,8 +15,26 @@ user's cooldown even when nothing was actually sent - e.g. SMTP being
 unconfigured, a transient network error, or Twilio rejecting the number
 would all lock a legitimate user out for the full cooldown period for a
 message they never received.
+
+Callers should rate-limit on TWO independent keys, not just one:
+  1. Per (guild, user) - stops one Discord account from spamming Verify.
+  2. Per destination (the actual email address / phone number) - stops
+     many DIFFERENT Discord accounts, or accounts across many DIFFERENT
+     guilds, from all sending codes to the same real inbox or phone number
+     in a burst. Without this, per-user limiting alone doesn't protect a
+     third party's inbox/phone from being bombarded, and doesn't protect
+     the bot owner's SMTP/Twilio account from abuse-detection flags caused
+     by many sends to one destination in a short window.
+
+The destination cooldown is intentionally NOT read from any guild's own
+settings. A guild's per-user cooldown_seconds is admin-configurable and
+therefore untrusted for this purpose - a careless or malicious guild owner
+could set their own cooldown to near-zero, and since the destination limit
+exists specifically to protect people/systems OUTSIDE that guild's control,
+it must not depend on that guild's configuration at all.
 """
 
+import os
 import time
 import logging
 
@@ -25,6 +43,15 @@ logger = logging.getLogger(__name__)
 _LAST_ACTION: dict[str, float] = (
     {}
 )  # key -> timestamp of the last recorded (successful) action
+
+
+def get_destination_cooldown_seconds() -> int:
+    """
+    Read fresh from the environment on every call (not cached at import
+    time) - see core/email_sender.py's docstring for why module-level
+    env-var caching is an import-order bug waiting to happen.
+    """
+    return int(os.getenv("DESTINATION_COOLDOWN_SECONDS", "60"))
 
 
 def is_allowed(key: str, cooldown_seconds: int) -> tuple[bool, float]:
