@@ -36,7 +36,7 @@ class CaptchaModal(BaseModal, title="Verification Captcha"):
             return  # this modal is only ever opened from a button inside a guild
 
         passed, reason = check_answer(
-            interaction.guild_id, interaction.user.id, self.answer.value
+            interaction.guild_id, interaction.user.id, "captcha", self.answer.value
         )
         if passed:
             await service.grant_verified(interaction, self.settings)
@@ -71,7 +71,7 @@ class CaptchaButton(discord.ui.Button[Any]):
             method_settings.get("length", 6),
             method_settings.get("type", "alphanumeric"),
         )
-        store_challenge(interaction.guild_id, interaction.user.id, code)
+        store_challenge(interaction.guild_id, interaction.user.id, "captcha", code)
 
         await interaction.response.send_modal(CaptchaModal(code, guild_settings))
 
