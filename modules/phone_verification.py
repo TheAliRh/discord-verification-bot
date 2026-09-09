@@ -54,7 +54,7 @@ class EnterPhoneCodeModal(BaseModal, title="Enter the code we texted you"):
             return  # this modal is only ever opened from a button inside a guild
 
         passed, reason = check_answer(
-            interaction.guild_id, interaction.user.id, self.answer.value
+            interaction.guild_id, interaction.user.id, "phone", self.answer.value
         )
         if passed:
             await service.grant_verified(interaction, self.settings)
@@ -173,7 +173,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         # Only store the challenge and record the rate limit now that the SMS
         # was actually sent - doing this beforehand would leave a valid,
         # checkable code sitting active for a message the user never received.
-        store_challenge(interaction.guild.id, interaction.user.id, code)
+        store_challenge(interaction.guild.id, interaction.user.id, "phone", code)
         record(rate_limit_key)
         record(destination_key)
         logger.info(
