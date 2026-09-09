@@ -106,7 +106,10 @@ class ImageCaptchaModal(BaseModal, title="Enter the code from the image"):
             return  # this modal is only ever opened from a button inside a guild
 
         passed, reason = check_answer(
-            interaction.guild_id, interaction.user.id, self.answer.value
+            interaction.guild_id,
+            interaction.user.id,
+            "image_captcha",
+            self.answer.value,
         )
         if passed:
             await service.grant_verified(interaction, self.settings)
@@ -162,7 +165,9 @@ class ImageCaptchaButton(discord.ui.Button[Any]):
             captcha_settings.get("length", 6),
             captcha_settings.get("type", "alphanumeric"),
         )
-        store_challenge(interaction.guild_id, interaction.user.id, code)
+        store_challenge(
+            interaction.guild_id, interaction.user.id, "image_captcha", code
+        )
 
         image_buffer = render_captcha_image(code)
         file = discord.File(image_buffer, filename="captcha.png")
