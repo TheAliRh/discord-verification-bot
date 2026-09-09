@@ -54,7 +54,7 @@ class EnterEmailCodeModal(BaseModal, title="Enter the code we emailed you"):
             return  # this modal is only ever opened from a button inside a guild
 
         passed, reason = check_answer(
-            interaction.guild_id, interaction.user.id, self.answer.value
+            interaction.guild_id, interaction.user.id, "email", self.answer.value
         )
         if passed:
             await service.grant_verified(interaction, self.settings)
@@ -159,7 +159,7 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         # Only store the challenge and record the rate limits now that the email
         # was actually sent - doing this beforehand would leave a valid,
         # checkable code sitting active for a message the user never received.
-        store_challenge(interaction.guild.id, interaction.user.id, code)
+        store_challenge(interaction.guild.id, interaction.user.id, "email", code)
         record(rate_limit_key)
         record(destination_key)
         logger.info(
