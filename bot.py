@@ -18,6 +18,7 @@ from modules import get_module, all_persistent_views
 from ui import SetupView
 from web import start_server
 from core import service
+from core.role_validation import validate_assignable_role
 from core.logging_config import setup_logging
 
 setup_logging()
@@ -264,12 +265,9 @@ async def verify_set_role(interaction: discord.Interaction, role: discord.Role) 
     if interaction.guild is None:
         return
 
-    if role >= interaction.guild.me.top_role:
-        await interaction.response.send_message(
-            "⚠️ My bot's role is not above that role, so I won't be able to assign it. "
-            "Move my role higher in Server Settings > Roles, then try again.",
-            ephemeral=True,
-        )
+    rejection_reason = validate_assignable_role(interaction.guild, role)
+    if rejection_reason is not None:
+        await interaction.response.send_message(f"⚠️ {rejection_reason}", ephemeral=True)
         return
 
     await settings_manager.update(interaction.guild.id, {"verified_role_id": role.id})
@@ -290,12 +288,9 @@ async def verify_set_unverified_role(
     if interaction.guild is None:
         return
 
-    if role >= interaction.guild.me.top_role:
-        await interaction.response.send_message(
-            "⚠️ My bot's role is not above that role, so I won't be able to assign it. "
-            "Move my role higher in Server Settings > Roles, then try again.",
-            ephemeral=True,
-        )
+    rejection_reason = validate_assignable_role(interaction.guild, role)
+    if rejection_reason is not None:
+        await interaction.response.send_message(f"⚠️ {rejection_reason}", ephemeral=True)
         return
 
     await settings_manager.update(interaction.guild.id, {"unverified_role_id": role.id})
