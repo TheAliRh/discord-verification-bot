@@ -435,6 +435,103 @@ async def test_verify_set_channel_persists_the_channel(bot_module):
     )
 
 
+# --- /verify-set-role and /verify-set-unverified-role: previously had NO direct test coverage at all ---
+
+
+async def test_verify_set_role_accepts_a_normal_role(bot_module):
+    from tests.conftest import FakeGuild, FakeRole
+
+    guild = FakeGuild(guild_id=20)
+    role = FakeRole(100)
+    await bot_module.settings_manager.init()
+
+    interaction = _make_command_interaction(guild, _FakeChannel(channel_id=1))
+    await bot_module.verify_set_role.callback(interaction, role)
+
+    saved = await bot_module.settings_manager.get(20)
+    assert saved["verified_role_id"] == 100
+    assert "Verified role set" in interaction.response.sent[0]
+
+
+async def test_verify_set_role_rejects_everyone(bot_module):
+    from tests.conftest import FakeGuild, FakeRole
+
+    guild = FakeGuild(guild_id=21)
+    everyone_role = FakeRole(guild.id, is_default=True)
+    await bot_module.settings_manager.init()
+
+    interaction = _make_command_interaction(guild, _FakeChannel(channel_id=1))
+    await bot_module.verify_set_role.callback(interaction, everyone_role)
+
+    saved = await bot_module.settings_manager.get(21)
+    assert saved["verified_role_id"] is None  # rejected, nothing saved
+    assert "@everyone" in interaction.response.sent[0]
+
+
+async def test_verify_set_role_rejects_managed_role(bot_module):
+    from tests.conftest import FakeGuild, FakeRole
+
+    guild = FakeGuild(guild_id=22)
+    managed_role = FakeRole(100, managed=True)
+    await bot_module.settings_manager.init()
+
+    interaction = _make_command_interaction(guild, _FakeChannel(channel_id=1))
+    await bot_module.verify_set_role.callback(interaction, managed_role)
+
+    saved = await bot_module.settings_manager.get(22)
+    assert saved["verified_role_id"] is None
+    assert "managed by an integration" in interaction.response.sent[0]
+
+
+async def test_verify_set_role_rejects_role_bot_cannot_assign(bot_module):
+    from types import SimpleNamespace
+    from tests.conftest import FakeGuild, FakeRole
+
+    guild = FakeGuild(guild_id=23)
+    guild.me = SimpleNamespace(
+        top_role=FakeRole(50),
+        guild_permissions=SimpleNamespace(manage_roles=True),
+    )
+    role_above_bot = FakeRole(100)
+    await bot_module.settings_manager.init()
+
+    interaction = _make_command_interaction(guild, _FakeChannel(channel_id=1))
+    await bot_module.verify_set_role.callback(interaction, role_above_bot)
+
+    saved = await bot_module.settings_manager.get(23)
+    assert saved["verified_role_id"] is None
+    assert "isn't above" in interaction.response.sent[0]
+
+
+async def test_verify_set_unverified_role_rejects_everyone(bot_module):
+    from tests.conftest import FakeGuild, FakeRole
+
+    guild = FakeGuild(guild_id=24)
+    everyone_role = FakeRole(guild.id, is_default=True)
+    await bot_module.settings_manager.init()
+
+    interaction = _make_command_interaction(guild, _FakeChannel(channel_id=1))
+    await bot_module.verify_set_unverified_role.callback(interaction, everyone_role)
+
+    saved = await bot_module.settings_manager.get(24)
+    assert saved["unverified_role_id"] is None
+    assert "@everyone" in interaction.response.sent[0]
+
+
+async def test_verify_set_unverified_role_accepts_a_normal_role(bot_module):
+    from tests.conftest import FakeGuild, FakeRole
+
+    guild = FakeGuild(guild_id=25)
+    role = FakeRole(200)
+    await bot_module.settings_manager.init()
+
+    interaction = _make_command_interaction(guild, _FakeChannel(channel_id=1))
+    await bot_module.verify_set_unverified_role.callback(interaction, role)
+
+    saved = await bot_module.settings_manager.get(25)
+    assert saved["unverified_role_id"] == 200
+
+
 def _make_command_interaction(guild, channel):
     from tests.conftest import FakeMember, FakeResponse
 
