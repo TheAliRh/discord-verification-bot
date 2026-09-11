@@ -92,10 +92,19 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         if interaction.guild is None:
             return  # this modal is only ever opened from a button inside a guild
 
+        # Defer immediately, before anything else. Discord requires an
+        # initial response within 3 seconds - sending the actual email is an
+        # external network call (SMTP) that can easily take longer than
+        # that, especially under load or with a slow provider. Deferring
+        # extends the effective response window to ~15 minutes and switches
+        # every subsequent reply to interaction.followup.send() instead of
+        # interaction.response.send_message().
+        await interaction.response.defer(ephemeral=True)
+
         address = self.email.value.strip()
 
         if not _looks_like_email(address):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "That doesn't look like a valid email address. Click Verify to try again.",
                 ephemeral=True,
             )
@@ -107,7 +116,7 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
 
         allowed, retry_after = is_allowed(rate_limit_key, cooldown_seconds)
         if not allowed:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Please wait {int(retry_after) + 1} more second(s) before requesting another code.",
                 ephemeral=True,
             )
@@ -123,7 +132,7 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
             destination_key, get_destination_cooldown_seconds()
         )
         if not destination_allowed:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "That email address was used very recently for another verification attempt. "
                 f"Please wait {int(destination_retry_after) + 1} more second(s), or use a different address.",
                 ephemeral=True,
@@ -139,7 +148,7 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
                 "Email verification attempted but SMTP is not configured (guild %s)",
                 interaction.guild_id,
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Email verification isn't fully set up on this server's bot yet. "
                 "Ask an admin to configure SMTP, or try a different verification method.",
                 ephemeral=True,
@@ -150,7 +159,7 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
                 "Failed to send verification email to a user in guild %s",
                 interaction.guild_id,
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Something went wrong sending the email. Please try again in a moment.",
                 ephemeral=True,
             )
@@ -168,7 +177,7 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
             interaction.guild_id,
         )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Sent a code to {address}. Click below once you have it.",
             view=EnterEmailCodeView(self.settings),
             ephemeral=True,
