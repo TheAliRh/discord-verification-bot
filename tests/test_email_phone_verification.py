@@ -65,7 +65,7 @@ async def test_email_second_submission_is_rate_limited_and_not_resent():
         await modal2.on_submit(interaction2)
 
     assert send_mock.call_count == 1  # second attempt did not send
-    assert "wait" in interaction2.response.sent[0].lower()
+    assert "wait" in interaction2.followup.sent[0].lower()
 
 
 async def test_email_different_users_are_not_rate_limited_by_each_other():
@@ -100,7 +100,7 @@ async def test_phone_second_submission_is_rate_limited_and_not_resent():
         await modal2.on_submit(interaction2)
 
     assert send_mock.call_count == 1
-    assert "wait" in interaction2.response.sent[0].lower()
+    assert "wait" in interaction2.followup.sent[0].lower()
 
 
 async def test_email_not_configured_gives_clear_message():
@@ -116,7 +116,7 @@ async def test_email_not_configured_gives_clear_message():
         interaction = FakeInteraction(user=FakeMember(user_id=1))
         await modal.on_submit(interaction)
 
-    assert "isn't fully set up" in interaction.response.sent[0]
+    assert "isn't fully set up" in interaction.followup.sent[0]
 
 
 # --- The actual bug being fixed: a failed send must not burn the cooldown ---
@@ -138,7 +138,7 @@ async def test_email_failed_send_does_not_rate_limit_immediate_retry():
         interaction1 = FakeInteraction(user=same_user)
         await modal1.on_submit(interaction1)
 
-    assert "went wrong" in interaction1.response.sent[0].lower()
+    assert "went wrong" in interaction1.followup.sent[0].lower()
 
     # Immediately retry - must NOT be rate-limited, since nothing was actually sent
     working_send = AsyncMock()
@@ -149,8 +149,8 @@ async def test_email_failed_send_does_not_rate_limit_immediate_retry():
         await modal2.on_submit(interaction2)
 
     assert working_send.call_count == 1  # the retry actually attempted to send
-    assert "wait" not in interaction2.response.sent[0].lower()
-    assert "Sent a code" in interaction2.response.sent[0]
+    assert "wait" not in interaction2.followup.sent[0].lower()
+    assert "Sent a code" in interaction2.followup.sent[0]
 
 
 async def test_email_not_configured_does_not_rate_limit_retry():
@@ -174,7 +174,7 @@ async def test_email_not_configured_does_not_rate_limit_retry():
         await modal2.on_submit(interaction2)
 
     assert working_send.call_count == 1
-    assert "wait" not in interaction2.response.sent[0].lower()
+    assert "wait" not in interaction2.followup.sent[0].lower()
 
 
 async def test_phone_failed_send_does_not_rate_limit_immediate_retry():
@@ -190,7 +190,7 @@ async def test_phone_failed_send_does_not_rate_limit_immediate_retry():
         interaction1 = FakeInteraction(user=same_user)
         await modal1.on_submit(interaction1)
 
-    assert "couldn't send" in interaction1.response.sent[0].lower()
+    assert "couldn't send" in interaction1.followup.sent[0].lower()
 
     working_send = AsyncMock()
     with patch.object(phone_mod, "send_verification_sms", working_send):
@@ -200,8 +200,8 @@ async def test_phone_failed_send_does_not_rate_limit_immediate_retry():
         await modal2.on_submit(interaction2)
 
     assert working_send.call_count == 1  # the retry actually attempted to send
-    assert "wait" not in interaction2.response.sent[0].lower()
-    assert "Sent a code" in interaction2.response.sent[0]
+    assert "wait" not in interaction2.followup.sent[0].lower()
+    assert "Sent a code" in interaction2.followup.sent[0]
 
 
 async def test_email_successful_send_still_enforces_the_cooldown():
@@ -221,7 +221,7 @@ async def test_email_successful_send_still_enforces_the_cooldown():
         await modal2.on_submit(interaction2)
 
     assert send_mock.call_count == 1  # second attempt correctly blocked
-    assert "wait" in interaction2.response.sent[0].lower()
+    assert "wait" in interaction2.followup.sent[0].lower()
 
 
 # --- The actual bug being fixed: a failed send must leave no active challenge ---
@@ -346,7 +346,7 @@ async def test_email_two_different_discord_accounts_same_destination_are_blocked
         await modal2.on_submit(interaction2)
 
     assert send_mock.call_count == 1  # second send was blocked
-    assert "used very recently" in interaction2.response.sent[0]
+    assert "used very recently" in interaction2.followup.sent[0]
 
 
 async def test_email_destination_key_is_case_insensitive():
@@ -364,7 +364,7 @@ async def test_email_destination_key_is_case_insensitive():
         await modal2.on_submit(interaction2)
 
     assert send_mock.call_count == 1
-    assert "used very recently" in interaction2.response.sent[0]
+    assert "used very recently" in interaction2.followup.sent[0]
 
 
 async def test_email_different_destinations_are_independent():
@@ -415,8 +415,8 @@ async def test_email_destination_cooldown_ignores_guild_cooldown_setting(monkeyp
 
     assert send_mock.call_count == 1
     assert (
-        "9999" in interaction2.response.sent[0]
-        or "used very recently" in interaction2.response.sent[0]
+        "9999" in interaction2.followup.sent[0]
+        or "used very recently" in interaction2.followup.sent[0]
     )
 
 
@@ -441,7 +441,7 @@ async def test_phone_two_different_discord_accounts_same_number_are_blocked():
         await modal2.on_submit(interaction2)
 
     assert send_mock.call_count == 1
-    assert "used very recently" in interaction2.response.sent[0]
+    assert "used very recently" in interaction2.followup.sent[0]
 
 
 async def test_phone_different_numbers_are_independent():
@@ -486,3 +486,102 @@ async def test_destination_limit_does_not_apply_when_send_fails():
     assert (
         working_send.call_count == 1
     )  # not blocked - the first attempt never actually sent
+
+
+# --- The actual bug being fixed: deferring before the slow external call ---
+
+
+async def test_email_defers_before_calling_the_slow_external_service():
+    """
+    Regression test: Discord requires an initial response within 3 seconds.
+    Sending the email is an external network call that can take longer than
+    that, so the interaction MUST be deferred before send_verification_email
+    is even called - not after. If defer() happened after (or not at all),
+    a slow SMTP server would cause Discord to mark the interaction as
+    failed before our code ever got a chance to respond.
+    """
+    settings = {"method_settings": {"email": {"length": 6, "cooldown_seconds": 60}}}
+    call_order = []
+
+    async def slow_send(address, code, guild_name):
+        call_order.append("send_verification_email")
+
+    with patch.object(email_mod, "send_verification_email", slow_send):
+        modal = email_mod.EmailAddressModal(settings)
+        modal.email._value = "user@example.com"
+        interaction = FakeInteraction(user=FakeMember(user_id=1))
+
+        original_defer = interaction.response.defer
+
+        async def tracked_defer(*args, **kwargs):
+            call_order.append("defer")
+            return await original_defer(*args, **kwargs)
+
+        interaction.response.defer = tracked_defer
+
+        await modal.on_submit(interaction)
+
+    assert call_order == ["defer", "send_verification_email"]  # defer happened FIRST
+    assert interaction.response.deferred is True
+    assert interaction.response.deferred_ephemeral is True
+
+
+async def test_phone_defers_before_calling_the_slow_external_service():
+    settings = {"method_settings": {"phone": {"length": 6, "cooldown_seconds": 60}}}
+    call_order = []
+
+    async def slow_send(number, code, guild_name):
+        call_order.append("send_verification_sms")
+
+    with patch.object(phone_mod, "send_verification_sms", slow_send):
+        modal = phone_mod.PhoneNumberModal(settings)
+        modal.phone_number._value = "+14155551234"
+        interaction = FakeInteraction(user=FakeMember(user_id=1))
+
+        original_defer = interaction.response.defer
+
+        async def tracked_defer(*args, **kwargs):
+            call_order.append("defer")
+            return await original_defer(*args, **kwargs)
+
+        interaction.response.defer = tracked_defer
+
+        await modal.on_submit(interaction)
+
+    assert call_order == ["defer", "send_verification_sms"]
+    assert interaction.response.deferred is True
+    assert interaction.response.deferred_ephemeral is True
+
+
+async def test_email_reply_goes_through_followup_not_initial_response():
+    """After defer(), the actual reply must use followup.send(), not response.send_message()."""
+    settings = {"method_settings": {"email": {"length": 6, "cooldown_seconds": 60}}}
+
+    with patch.object(email_mod, "send_verification_email", AsyncMock()):
+        modal = email_mod.EmailAddressModal(settings)
+        modal.email._value = "user@example.com"
+        interaction = FakeInteraction(user=FakeMember(user_id=1))
+        await modal.on_submit(interaction)
+
+    assert interaction.response.sent == []  # nothing sent via the initial response slot
+    assert len(interaction.followup.sent) == 1
+    assert "Sent a code" in interaction.followup.sent[0]
+
+
+async def test_email_still_works_correctly_when_the_send_is_genuinely_slow():
+    """Simulates a slow (but eventually successful) SMTP call - deferring must make this a non-issue."""
+    import asyncio
+
+    settings = {"method_settings": {"email": {"length": 6, "cooldown_seconds": 60}}}
+
+    async def slow_but_successful_send(address, code, guild_name):
+        await asyncio.sleep(0.05)  # stand-in for real network latency
+
+    with patch.object(email_mod, "send_verification_email", slow_but_successful_send):
+        modal = email_mod.EmailAddressModal(settings)
+        modal.email._value = "user@example.com"
+        interaction = FakeInteraction(user=FakeMember(user_id=1))
+        await modal.on_submit(interaction)
+
+    assert interaction.response.deferred is True
+    assert "Sent a code" in interaction.followup.sent[0]
