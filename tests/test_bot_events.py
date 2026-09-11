@@ -266,7 +266,13 @@ async def test_verify_post_uses_configured_channel_not_current_channel(bot_modul
     )
 
 
-async def test_verify_post_falls_back_when_configured_channel_deleted(bot_module):
+async def test_verify_post_refuses_when_configured_channel_deleted(bot_module):
+    """
+    Regression test: previously this fell back to posting in whatever channel
+    the admin happened to run the command in - potentially posting a public
+    verification button somewhere never intended for it (e.g. a private
+    staff channel). It must now refuse outright and say how to fix it.
+    """
     from tests.conftest import FakeGuild, FakeRole
 
     current_channel = _FakeChannel(channel_id=999)
@@ -281,13 +287,12 @@ async def test_verify_post_falls_back_when_configured_channel_deleted(bot_module
     interaction = _make_command_interaction(guild, current_channel)
     await bot_module.verify_post.callback(interaction)
 
-    assert len(current_channel.sent) == 1  # fell back to current channel
+    assert len(current_channel.sent) == 0  # nothing posted anywhere, no fallback
     assert "no longer exists" in interaction.response.sent[0]
+    assert "verify-set-channel" in interaction.response.sent[0]
 
 
-async def test_verify_post_falls_back_when_configured_channel_not_messageable(
-    bot_module,
-):
+async def test_verify_post_refuses_when_configured_channel_not_messageable(bot_module):
     from tests.conftest import FakeGuild, FakeRole
 
     current_channel = _FakeChannel(channel_id=999)
@@ -303,8 +308,28 @@ async def test_verify_post_falls_back_when_configured_channel_not_messageable(
     interaction = _make_command_interaction(guild, current_channel)
     await bot_module.verify_post.callback(interaction)
 
-    assert len(current_channel.sent) == 1
+    assert len(current_channel.sent) == 0  # nothing posted anywhere, no fallback
     assert "isn't a channel type" in interaction.response.sent[0]
+    assert "verify-set-channel" in interaction.response.sent[0]
+
+
+async def test_verify_post_refuses_when_no_channel_configured_at_all(bot_module):
+    """The 'never configured' case must also refuse, not silently post in the current channel."""
+    from tests.conftest import FakeGuild, FakeRole
+
+    current_channel = _FakeChannel(channel_id=999)
+    guild = FakeGuild(guild_id=10, roles=[FakeRole(100)])
+
+    await bot_module.settings_manager.init()
+    await bot_module.settings_manager.update(
+        10, {"verified_role_id": 100}
+    )  # no verify_channel_id at all
+
+    interaction = _make_command_interaction(guild, current_channel)
+    await bot_module.verify_post.callback(interaction)
+
+    assert len(current_channel.sent) == 0
+    assert "verify-set-channel" in interaction.response.sent[0]
 
 
 async def test_verify_post_does_not_crash_on_invalid_stored_method(bot_module):
@@ -316,13 +341,18 @@ async def test_verify_post_does_not_crash_on_invalid_stored_method(bot_module):
     """
     from tests.conftest import FakeGuild, FakeRole
 
-    channel = _FakeChannel(channel_id=999)
+    channel = _FakeChannel(channel_id=555)
     guild = FakeGuild(guild_id=4, roles=[FakeRole(100)])
-    guild.get_channel = lambda cid: None
+    guild.get_channel = lambda cid: channel if cid == 555 else None
 
     await bot_module.settings_manager.init()
     await bot_module.settings_manager.update(
-        4, {"verified_role_id": 100, "method": "this_method_does_not_exist"}
+        4,
+        {
+            "verified_role_id": 100,
+            "verify_channel_id": 555,
+            "method": "this_method_does_not_exist",
+        },
     )
 
     interaction = _make_command_interaction(guild, channel)
@@ -382,6 +412,27 @@ async def test_verify_toggle_turns_verification_back_on(bot_module):
     saved = await bot_module.settings_manager.get(7)
     assert saved["enabled"] is True
     assert "on" in interaction.response.sent[0].lower()
+
+
+# --- /verify-set-channel: previously there was NO flat command for this, only the wizard ---
+
+
+async def test_verify_set_channel_persists_the_channel(bot_module):
+    from tests.conftest import FakeGuild
+
+    guild = FakeGuild(guild_id=8)
+    channel = _FakeChannel(channel_id=777)
+    await bot_module.settings_manager.init()
+
+    interaction = _make_command_interaction(guild, channel)
+    await bot_module.verify_set_channel.callback(interaction, channel)
+
+    saved = await bot_module.settings_manager.get(8)
+    assert saved["verify_channel_id"] == 777
+    assert (
+        "777" in interaction.response.sent[0]
+        or channel.mention in interaction.response.sent[0]
+    )
 
 
 def _make_command_interaction(guild, channel):
