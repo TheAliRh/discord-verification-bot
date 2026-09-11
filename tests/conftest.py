@@ -63,12 +63,22 @@ class FakeMember:
         self.dm_forbidden = False
         self.kicked = False
         self.kick_forbidden = False
+        self.add_roles_forbidden = False
+        self.remove_roles_forbidden = False
 
     async def add_roles(self, role, reason=None):
+        if self.add_roles_forbidden:
+            raise discord.Forbidden(
+                response=FakeHTTPResponse(), message="Cannot add role"
+            )
         self.added_roles.append(role.id)
         self.roles.append(role)
 
     async def remove_roles(self, role, reason=None):
+        if self.remove_roles_forbidden:
+            raise discord.Forbidden(
+                response=FakeHTTPResponse(), message="Cannot remove role"
+            )
         self.removed_roles.append(role.id)
         self.roles = [r for r in self.roles if r.id != role.id]
 
@@ -135,6 +145,13 @@ class FakeResponse:
         self.sent = []
         self.sent_kwargs = []
         self._done = False
+        self.deferred = False
+        self.deferred_ephemeral = None
+
+    async def defer(self, ephemeral=False, **kwargs):
+        self.deferred = True
+        self.deferred_ephemeral = ephemeral
+        self._done = True
 
     async def send_message(self, content=None, **kwargs):
         self.sent.append(content)
