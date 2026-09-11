@@ -10,6 +10,7 @@ a real bot token, which this sandbox/CI environment doesn't have anyway.
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import discord
@@ -24,8 +25,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 class FakeRole:
-    def __init__(self, role_id):
+    def __init__(self, role_id, is_default=False, managed=False):
         self.id = role_id
+        self.mention = f"<@&{role_id}>"
+        self._is_default = is_default
+        self.managed = managed
+
+    def is_default(self):
+        return self._is_default
 
     def __eq__(self, other):
         return isinstance(other, FakeRole) and self.id == other.id
@@ -94,6 +101,14 @@ class FakeGuild:
         self.name = name
         self._roles = {r.id: r for r in (roles or [])}
         self._member = member
+        # Permissive default: the bot can manage roles and its top role sits
+        # above anything a test is likely to construct. Override guild.me
+        # directly in tests that need to exercise a restrictive scenario
+        # (missing permission, insufficient hierarchy, etc.).
+        self.me = SimpleNamespace(
+            top_role=FakeRole(999999),
+            guild_permissions=SimpleNamespace(manage_roles=True),
+        )
 
     def get_role(self, role_id):
         return self._roles.get(role_id)
