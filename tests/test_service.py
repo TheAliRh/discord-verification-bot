@@ -19,6 +19,99 @@ async def test_grant_verified_success_swaps_roles():
     assert interaction.response.sent[0].startswith("✅")
 
 
+# --- The actual bug being fixed: a failed unverified-role removal must not fail verification ---
+
+
+async def test_verification_still_succeeds_if_removing_unverified_role_fails():
+    """
+    Regression test: previously both add_roles() and remove_roles() shared
+    one try/except, so a Forbidden error removing the Unverified role would
+    report the WHOLE verification as failed - even though the user had
+    already actually received the Verified role. The user must be told
+    they're verified, since they are.
+    """
+    verified_role = FakeRole(100)
+    unverified_role = FakeRole(200)
+    guild = FakeGuild(roles=[verified_role, unverified_role])
+    member = FakeMember(user_id=1, roles=[unverified_role])
+    member.remove_roles_forbidden = True
+    interaction = FakeInteraction(user=member, guild=guild)
+
+    await service.grant_verified(
+        interaction, {"verified_role_id": 100, "unverified_role_id": 200}
+    )
+
+    assert 100 in member.added_roles  # the important part actually happened
+    assert 200 not in member.removed_roles  # the removal genuinely failed
+    assert interaction.response.sent[0].startswith(
+        "✅"
+    )  # reported as SUCCESS, not failure
+    assert "You're verified" in interaction.response.sent[0]
+
+
+async def test_verification_fails_if_adding_verified_role_fails():
+    """The mirror case: if granting the Verified role itself fails, that IS a real failure."""
+    verified_role = FakeRole(100)
+    guild = FakeGuild(roles=[verified_role])
+    member = FakeMember(user_id=1)
+    member.add_roles_forbidden = True
+    interaction = FakeInteraction(user=member, guild=guild)
+
+    await service.grant_verified(interaction, {"verified_role_id": 100})
+
+    assert member.added_roles == []
+    assert not interaction.response.sent[0].startswith("✅")
+    assert "don't have permission to assign" in interaction.response.sent[0]
+
+
+async def test_attempts_are_reset_even_if_unverified_role_removal_fails():
+    """The user genuinely passed, so their attempt counter must still reset - not skipped due to the cleanup failure."""
+    from core.attempt_tracker import record_failed_attempt, get_failed_attempts
+
+    verified_role = FakeRole(100)
+    unverified_role = FakeRole(200)
+    guild = FakeGuild(roles=[verified_role, unverified_role])
+    member = FakeMember(user_id=1, roles=[unverified_role])
+    member.remove_roles_forbidden = True
+    interaction = FakeInteraction(user=member, guild=guild)
+
+    record_failed_attempt(guild.id, member.id)
+    assert get_failed_attempts(guild.id, member.id) == 1
+
+    await service.grant_verified(
+        interaction, {"verified_role_id": 100, "unverified_role_id": 200}
+    )
+
+    assert get_failed_attempts(guild.id, member.id) == 0
+
+
+async def test_grant_verified_by_id_also_succeeds_if_unverified_removal_fails():
+    """Same fix applies to the OAuth2/HTTP path, which shares _assign_verified_role with the interaction path."""
+    verified_role = FakeRole(100)
+    unverified_role = FakeRole(200)
+    member = FakeMember(user_id=1, roles=[unverified_role])
+    member.remove_roles_forbidden = True
+    guild = FakeGuild(
+        guild_id=999, roles=[verified_role, unverified_role], member=member
+    )
+
+    class FakeBot:
+        def get_guild(self, gid):
+            return guild if gid == 999 else None
+
+    ok, message = await service.grant_verified_by_id(
+        FakeBot(),
+        guild_id=999,
+        user_id=1,
+        settings={"verified_role_id": 100, "unverified_role_id": 200},
+    )
+
+    assert ok is True
+    assert 100 in member.added_roles
+    assert 200 not in member.removed_roles
+    assert "You're verified" in message
+
+
 async def test_grant_verified_missing_role_id_configured():
     guild = FakeGuild()
     member = FakeMember(user_id=1)
