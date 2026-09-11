@@ -93,10 +93,18 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         if interaction.guild is None:
             return  # this modal is only ever opened from a button inside a guild
 
+        # Defer immediately, before anything else. Discord requires an
+        # initial response within 3 seconds - sending the actual SMS is an
+        # external network call (Twilio) that can easily take longer than
+        # that. Deferring extends the effective response window to ~15
+        # minutes and switches every subsequent reply to
+        # interaction.followup.send() instead of interaction.response.send_message().
+        await interaction.response.defer(ephemeral=True)
+
         number = self.phone_number.value.strip()
 
         if not _looks_like_phone_number(number):
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "That doesn't look like a valid phone number. Include the country code, "
                 "e.g. `+14155551234`. Click Verify to try again.",
                 ephemeral=True,
@@ -109,7 +117,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
 
         allowed, retry_after = is_allowed(rate_limit_key, cooldown_seconds)
         if not allowed:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"Please wait {int(retry_after) + 1} more second(s) before requesting another code.",
                 ephemeral=True,
             )
@@ -125,7 +133,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             destination_key, get_destination_cooldown_seconds()
         )
         if not destination_allowed:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "That phone number was used very recently for another verification attempt. "
                 f"Please wait {int(destination_retry_after) + 1} more second(s), or use a different number.",
                 ephemeral=True,
@@ -141,7 +149,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
                 "Phone verification attempted but Twilio is not configured (guild %s)",
                 interaction.guild_id,
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Phone verification isn't fully set up on this server's bot yet. "
                 "Ask an admin to configure Twilio, or try a different verification method.",
                 ephemeral=True,
@@ -153,7 +161,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
                 interaction.user.id,
                 interaction.guild_id,
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Couldn't send a text to that number. Double-check it's correct, "
                 "or try a different verification method.",
                 ephemeral=True,
@@ -164,7 +172,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
                 "Unexpected error sending verification SMS in guild %s",
                 interaction.guild_id,
             )
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 "Something went wrong sending the code. Please try again in a moment.",
                 ephemeral=True,
             )
@@ -182,7 +190,7 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             interaction.guild_id,
         )
 
-        await interaction.response.send_message(
+        await interaction.followup.send(
             f"Sent a code to {number}. Click below once you have it.",
             view=EnterPhoneCodeView(self.settings),
             ephemeral=True,
