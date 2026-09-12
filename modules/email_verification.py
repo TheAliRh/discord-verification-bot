@@ -21,7 +21,7 @@ from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
-from core.rate_limiter import is_allowed, record, get_destination_cooldown_seconds
+from core.rate_limiter import try_acquire, release, get_destination_cooldown_seconds
 from core.email_sender import send_verification_email, EmailNotConfigured
 from core.ui_base import BaseView, BaseModal
 
@@ -114,8 +114,8 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         rate_limit_key = f"email:{interaction.guild.id}:{interaction.user.id}"
         cooldown_seconds = method_settings.get("cooldown_seconds", 60)
 
-        allowed, retry_after = is_allowed(rate_limit_key, cooldown_seconds)
-        if not allowed:
+        acquired, retry_after = try_acquire(rate_limit_key, cooldown_seconds)
+        if not acquired:
             await interaction.followup.send(
                 f"Please wait {int(retry_after) + 1} more second(s) before requesting another code.",
                 ephemeral=True,
@@ -128,10 +128,15 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         # accounts (or accounts in different guilds) from all sending codes
         # to the same real inbox in a burst.
         destination_key = f"email_dest:{address.lower()}"
-        destination_allowed, destination_retry_after = is_allowed(
+        destination_acquired, destination_retry_after = try_acquire(
             destination_key, get_destination_cooldown_seconds()
         )
-        if not destination_allowed:
+        if not destination_acquired:
+            # We already reserved the per-user key above, but we're rejecting
+            # this attempt over the destination limit instead - undo that
+            # reservation so the user isn't penalized for an attempt that
+            # never actually resulted in anything being sent.
+            release(rate_limit_key)
             await interaction.followup.send(
                 "That email address was used very recently for another verification attempt. "
                 f"Please wait {int(destination_retry_after) + 1} more second(s), or use a different address.",
@@ -144,6 +149,8 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
         try:
             await send_verification_email(address, code, interaction.guild.name)
         except EmailNotConfigured:
+            release(rate_limit_key)
+            release(destination_key)
             logger.warning(
                 "Email verification attempted but SMTP is not configured (guild %s)",
                 interaction.guild_id,
@@ -155,6 +162,8 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
             )
             return
         except Exception:
+            release(rate_limit_key)
+            release(destination_key)
             logger.exception(
                 "Failed to send verification email to a user in guild %s",
                 interaction.guild_id,
@@ -165,12 +174,10 @@ class EmailAddressModal(BaseModal, title="Verify by Email"):
             )
             return
 
-        # Only store the challenge and record the rate limits now that the email
-        # was actually sent - doing this beforehand would leave a valid,
-        # checkable code sitting active for a message the user never received.
+        # Both rate-limit keys were already reserved by try_acquire() above -
+        # nothing more to record here now that the send has confirmed succeeded.
+        # Only the challenge itself still needs storing at this point.
         store_challenge(interaction.guild.id, interaction.user.id, "email", code)
-        record(rate_limit_key)
-        record(destination_key)
         logger.info(
             "Sent verification email for user %s in guild %s",
             interaction.user.id,
