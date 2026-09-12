@@ -585,3 +585,38 @@ async def test_email_still_works_correctly_when_the_send_is_genuinely_slow():
 
     assert interaction.response.deferred is True
     assert "Sent a code" in interaction.followup.sent[0]
+
+
+async def test_two_concurrent_email_submissions_only_one_actually_sends():
+    """
+    End-to-end proof through the real module (not just the isolated rate
+    limiter): two genuinely concurrent modal submissions for the same user
+    must result in exactly ONE email actually being sent, never two.
+    """
+    import asyncio
+
+    settings = {"method_settings": {"email": {"length": 6, "cooldown_seconds": 60}}}
+    same_user = FakeMember(user_id=500)
+    send_calls = []
+
+    async def tracked_send(address, code, guild_name):
+        await asyncio.sleep(
+            0.01
+        )  # simulate real network latency, giving the race a chance to occur
+        send_calls.append(code)
+
+    async def submit():
+        modal = email_mod.EmailAddressModal(settings)
+        modal.email._value = "victim@example.com"
+        interaction = FakeInteraction(user=same_user)
+        await modal.on_submit(interaction)
+        return interaction
+
+    with patch.object(email_mod, "send_verification_email", tracked_send):
+        interaction1, interaction2 = await asyncio.gather(submit(), submit())
+
+    assert len(send_calls) == 1  # only one of the two concurrent attempts actually sent
+
+    responses = interaction1.followup.sent + interaction2.followup.sent
+    assert any("Sent a code" in r for r in responses)
+    assert any("wait" in r.lower() for r in responses)
