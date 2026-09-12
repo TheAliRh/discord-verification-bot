@@ -24,7 +24,7 @@ from core.base import VerificationModule
 from core import service
 from core.prechecks import passes_prechecks
 from core.challenge_store import generate_code, store_challenge, check_answer
-from core.rate_limiter import is_allowed, record, get_destination_cooldown_seconds
+from core.rate_limiter import try_acquire, release, get_destination_cooldown_seconds
 from core.sms_sender import send_verification_sms, SMSNotConfigured, SMSSendError
 from core.ui_base import BaseView, BaseModal
 
@@ -115,8 +115,8 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         rate_limit_key = f"phone:{interaction.guild.id}:{interaction.user.id}"
         cooldown_seconds = method_settings.get("cooldown_seconds", 60)
 
-        allowed, retry_after = is_allowed(rate_limit_key, cooldown_seconds)
-        if not allowed:
+        acquired, retry_after = try_acquire(rate_limit_key, cooldown_seconds)
+        if not acquired:
             await interaction.followup.send(
                 f"Please wait {int(retry_after) + 1} more second(s) before requesting another code.",
                 ephemeral=True,
@@ -129,10 +129,14 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         # accounts (or accounts in different guilds) from all texting codes
         # to the same real phone number in a burst.
         destination_key = f"phone_dest:{number}"
-        destination_allowed, destination_retry_after = is_allowed(
+        destination_acquired, destination_retry_after = try_acquire(
             destination_key, get_destination_cooldown_seconds()
         )
-        if not destination_allowed:
+        if not destination_acquired:
+            # Already reserved the per-user key above, but rejecting this
+            # attempt over the destination limit - undo that reservation so
+            # the user isn't penalized for an attempt that never sent anything.
+            release(rate_limit_key)
             await interaction.followup.send(
                 "That phone number was used very recently for another verification attempt. "
                 f"Please wait {int(destination_retry_after) + 1} more second(s), or use a different number.",
@@ -145,6 +149,8 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
         try:
             await send_verification_sms(number, code, interaction.guild.name)
         except SMSNotConfigured:
+            release(rate_limit_key)
+            release(destination_key)
             logger.warning(
                 "Phone verification attempted but Twilio is not configured (guild %s)",
                 interaction.guild_id,
@@ -156,6 +162,8 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             )
             return
         except SMSSendError:
+            release(rate_limit_key)
+            release(destination_key)
             logger.warning(
                 "Twilio rejected an SMS send for user %s in guild %s",
                 interaction.user.id,
@@ -168,6 +176,8 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             )
             return
         except Exception:
+            release(rate_limit_key)
+            release(destination_key)
             logger.exception(
                 "Unexpected error sending verification SMS in guild %s",
                 interaction.guild_id,
@@ -178,12 +188,9 @@ class PhoneNumberModal(BaseModal, title="Verify by Phone"):
             )
             return
 
-        # Only store the challenge and record the rate limit now that the SMS
-        # was actually sent - doing this beforehand would leave a valid,
-        # checkable code sitting active for a message the user never received.
+        # Both rate-limit keys were already reserved by try_acquire() above -
+        # nothing more to record here now that the send has confirmed succeeded.
         store_challenge(interaction.guild.id, interaction.user.id, "phone", code)
-        record(rate_limit_key)
-        record(destination_key)
         logger.info(
             "Sent verification SMS for user %s in guild %s",
             interaction.user.id,
