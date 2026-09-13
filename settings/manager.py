@@ -74,12 +74,14 @@ class SettingsPersistenceError(Exception):
 
 class SettingsManager:
     def __init__(self) -> None:
-        self._cache: dict[int, dict[str, Any]] = {}   # guild_id -> settings dict
+        self._cache: dict[int, dict[str, Any]] = {}  # guild_id -> settings dict
         self._db: aiosqlite.Connection | None = None
 
     def _require_db(self) -> aiosqlite.Connection:
         if self._db is None:
-            raise RuntimeError("SettingsManager.init() must be called before using this method")
+            raise RuntimeError(
+                "SettingsManager.init() must be called before using this method"
+            )
         return self._db
 
     async def init(self) -> None:
@@ -132,7 +134,8 @@ class SettingsManager:
             logger.error(
                 "Failed to read settings for guild %s - failing closed (verification disabled) "
                 "until this is resolved, rather than silently falling back to the easiest method",
-                guild_id, exc_info=True,
+                guild_id,
+                exc_info=True,
             )
             return _fail_closed_settings()  # not cached - retry from DB next time
 
@@ -148,7 +151,9 @@ class SettingsManager:
                     "until this is fixed, rather than silently falling back to the easiest method",
                     guild_id,
                 )
-                return _fail_closed_settings()  # not cached - a fix to the row can take effect later
+                return (
+                    _fail_closed_settings()
+                )  # not cached - a fix to the row can take effect later
             # deep-merge so any new default keys added after this guild first
             # saved settings still show up, without needing a migration
             settings = _deep_merge(DEFAULT_SETTINGS, stored)
@@ -181,7 +186,9 @@ class SettingsManager:
             await db.commit()
         except Exception as e:
             logger.exception("Failed to persist settings update for guild %s", guild_id)
-            raise SettingsPersistenceError(f"Could not save settings for guild {guild_id}") from e
+            raise SettingsPersistenceError(
+                f"Could not save settings for guild {guild_id}"
+            ) from e
 
         self._cache[guild_id] = new_settings
         logger.info("Settings updated for guild %s: %s", guild_id, list(updates.keys()))
@@ -199,7 +206,9 @@ class SettingsManager:
             await db.commit()
         except Exception as e:
             logger.exception("Failed to reset settings for guild %s", guild_id)
-            raise SettingsPersistenceError(f"Could not reset settings for guild {guild_id}") from e
+            raise SettingsPersistenceError(
+                f"Could not reset settings for guild {guild_id}"
+            ) from e
 
         self._cache.pop(guild_id, None)
         logger.info("Settings reset to defaults for guild %s", guild_id)
