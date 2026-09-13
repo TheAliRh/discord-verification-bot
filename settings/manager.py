@@ -28,7 +28,7 @@ from .defaults import DEFAULT_SETTINGS
 
 logger = logging.getLogger(__name__)
 
-DB_PATH = Path(__file__).parent.parent / "database" / "bot.db"
+DB_PATH = Path(__file__).parent.parent / "data" / "bot.db"
 
 
 def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
@@ -40,6 +40,25 @@ def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any
         else:
             result[key] = value
     return result
+
+
+def _fail_closed_settings() -> dict[str, Any]:
+    """
+    Used when we KNOW a guild's real settings exist (or might exist) but
+    couldn't be read - a DB error, or corrupted JSON on an existing row.
+    This is NOT the same situation as a guild that genuinely never
+    configured anything: here, the guild may have deliberately chosen a
+    strict setup (email/OAuth2, a high min_account_age_days, kick_on_fail),
+    and returning plain DEFAULT_SETTINGS would silently downgrade them to
+    the easiest possible method (a bare button, no age check) for as long
+    as the error persists - exactly the kind of failure mode that matters
+    most during the highest-load moments (e.g. a raid causing DB
+    contention). Forcing enabled=False instead means core.prechecks blocks
+    every verification attempt outright (it's checked before any method
+    ever runs) until the underlying error is fixed and real settings can
+    be read again - a hard stop rather than a silent weakening.
+    """
+    return _deep_merge(DEFAULT_SETTINGS, {"enabled": False})
 
 
 class SettingsPersistenceError(Exception):
@@ -89,11 +108,16 @@ class SettingsManager:
         """
         Return this guild's settings, merged over defaults.
 
-        Never raises - if the database read fails, this logs the failure
-        and falls back to defaults rather than breaking verification
-        entirely for that guild. A guild temporarily running on defaults
-        because of a DB hiccup is a much better failure mode than the bot
-        being unable to process any interaction in that guild at all.
+        Never raises, but does NOT treat every failure the same:
+        - A guild with no row at all (never configured) legitimately gets
+          real DEFAULT_SETTINGS (enabled=True, method="button") - that's
+          not a failure, it's just a fresh guild.
+        - A DB read error, or corrupted JSON on a row that DOES exist,
+          means we can't tell whether this guild configured something
+          strict - so this fails CLOSED (enabled=False) rather than
+          silently serving the easiest possible defaults. See
+          _fail_closed_settings()'s docstring for why that distinction
+          matters.
         """
         if guild_id in self._cache:
             logger.debug("Settings cache hit for guild %s", guild_id)
@@ -107,13 +131,13 @@ class SettingsManager:
             ) as cursor:
                 row = await cursor.fetchone()
         except Exception:
-            logger.exception(
-                "Failed to read settings for guild %s - falling back to defaults",
+            logger.error(
+                "Failed to read settings for guild %s - failing closed (verification disabled) "
+                "until this is resolved, rather than silently falling back to the easiest method",
                 guild_id,
+                exc_info=True,
             )
-            return copy.deepcopy(
-                DEFAULT_SETTINGS
-            )  # not cached - retry from DB next time
+            return _fail_closed_settings()  # not cached - retry from DB next time
 
         if row is None:
             logger.debug("No stored settings for guild %s - using defaults", guild_id)
@@ -123,11 +147,12 @@ class SettingsManager:
                 stored = json.loads(row[0])
             except json.JSONDecodeError:
                 logger.error(
-                    "Corrupted settings JSON for guild %s - falling back to defaults",
+                    "Corrupted settings JSON for guild %s - failing closed (verification disabled) "
+                    "until this is fixed, rather than silently falling back to the easiest method",
                     guild_id,
                 )
-                return copy.deepcopy(
-                    DEFAULT_SETTINGS
+                return (
+                    _fail_closed_settings()
                 )  # not cached - a fix to the row can take effect later
             # deep-merge so any new default keys added after this guild first
             # saved settings still show up, without needing a migration

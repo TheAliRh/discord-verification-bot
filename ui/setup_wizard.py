@@ -14,6 +14,7 @@ import discord
 from settings import settings_manager
 from modules import MODULES
 from core.ui_base import BaseView, BaseModal
+from core.role_validation import validate_assignable_role
 
 
 def _method_options() -> list[discord.SelectOption]:
@@ -77,11 +78,10 @@ class VerifiedRoleSelect(discord.ui.RoleSelect[Any]):
             return  # this select only ever appears on a message inside a guild
 
         role = self.values[0]
-        if role >= interaction.guild.me.top_role:
+        rejection_reason = validate_assignable_role(interaction.guild, role)
+        if rejection_reason is not None:
             await interaction.response.send_message(
-                "⚠️ My role isn't above that role, so I can't assign it. "
-                "Move my role higher in Server Settings > Roles, then pick again.",
-                ephemeral=True,
+                f"⚠️ {rejection_reason}", ephemeral=True
             )
             return
         self.wizard_view.verified_role_id = role.id

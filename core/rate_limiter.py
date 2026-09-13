@@ -7,14 +7,22 @@ ACTION (sending an email or SMS) can be triggered in the first place -
 without it, spam-clicking Verify on email/phone methods sends unlimited
 messages at your SMTP/Twilio account's expense.
 
-Checking and recording are two separate steps - is_allowed() then record() -
-not one atomic call, on purpose. The caller must check BEFORE attempting
-the costly action, but should only record it AFTER that action actually
-succeeds. Recording unconditionally before attempting the send burns the
-user's cooldown even when nothing was actually sent - e.g. SMTP being
-unconfigured, a transient network error, or Twilio rejecting the number
-would all lock a legitimate user out for the full cooldown period for a
-message they never received.
+try_acquire() checks AND reserves the slot in one synchronous step, with no
+`await` inside it. This matters: asyncio only switches between coroutines
+at `await` points, so a plain synchronous function can never be interleaved
+by another coroutine's call to the same function. If checking and recording
+were two separate calls with the actual network send awaited in between (as
+an earlier version of this module did), two near-simultaneous requests for
+the same key could both see "allowed" before either one had recorded
+anything - letting both through. Combining them into one atomic step closes
+that window entirely.
+
+Because try_acquire() reserves the slot immediately, on the assumption the
+guarded action will succeed, callers must call release() if that action
+actually fails (e.g. the email/SMS send raised an exception). Without this,
+a failed send would still cost the user their cooldown window for a
+message they never received - the same problem the atomicity fix must not
+reintroduce.
 
 Callers should rate-limit on TWO independent keys, not just one:
   1. Per (guild, user) - stops one Discord account from spamming Verify.
@@ -42,7 +50,7 @@ logger = logging.getLogger(__name__)
 
 _LAST_ACTION: dict[str, float] = (
     {}
-)  # key -> timestamp of the last recorded (successful) action
+)  # key -> timestamp of the last acquired (reserved) action
 
 
 def get_destination_cooldown_seconds() -> int:
@@ -54,12 +62,18 @@ def get_destination_cooldown_seconds() -> int:
     return int(os.getenv("DESTINATION_COOLDOWN_SECONDS", "60"))
 
 
-def is_allowed(key: str, cooldown_seconds: int) -> tuple[bool, float]:
+def try_acquire(key: str, cooldown_seconds: int) -> tuple[bool, float]:
     """
-    Returns (allowed, retry_after_seconds) WITHOUT recording anything.
-    Call record() yourself once the action you're gating actually succeeds -
-    if it fails, simply don't call record(), and the user isn't penalized
-    for a send that never happened.
+    Atomically checks the cooldown AND, if allowed, immediately reserves it -
+    a single synchronous operation with no `await` inside it, so two
+    concurrent callers can never both observe "allowed" for the same key.
+
+    Returns (acquired, retry_after_seconds). If acquired is False, nothing
+    was reserved - retry_after_seconds says how long until it's clear.
+
+    If acquired is True but the action this reservation guards subsequently
+    fails, call release(key) to undo it rather than leaving the user
+    penalized for something that never actually happened.
     """
     now = time.time()
     last = _LAST_ACTION.get(key)
@@ -71,9 +85,17 @@ def is_allowed(key: str, cooldown_seconds: int) -> tuple[bool, float]:
             logger.info("Rate limit hit for '%s' - %.1fs remaining", key, retry_after)
             return False, retry_after
 
+    # Reserve immediately - no `await` between the check above and this
+    # write, so this whole function is atomic with respect to other
+    # coroutines regardless of how many are waiting to run.
+    _LAST_ACTION[key] = now
     return True, 0.0
 
 
-def record(key: str) -> None:
-    """Call only after the rate-limited action actually succeeded."""
-    _LAST_ACTION[key] = time.time()
+def release(key: str) -> None:
+    """
+    Undo a reservation made by try_acquire(), because the action it was
+    guarding failed. Without this, a failed send would still cost the user
+    their cooldown window for a message they never actually received.
+    """
+    _LAST_ACTION.pop(key, None)

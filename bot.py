@@ -18,6 +18,7 @@ from modules import get_module, all_persistent_views
 from ui import SetupView
 from web import start_server
 from core import service
+from core.role_validation import validate_assignable_role
 from core.logging_config import setup_logging
 
 setup_logging()
@@ -264,12 +265,9 @@ async def verify_set_role(interaction: discord.Interaction, role: discord.Role) 
     if interaction.guild is None:
         return
 
-    if role >= interaction.guild.me.top_role:
-        await interaction.response.send_message(
-            "⚠️ My bot's role is not above that role, so I won't be able to assign it. "
-            "Move my role higher in Server Settings > Roles, then try again.",
-            ephemeral=True,
-        )
+    rejection_reason = validate_assignable_role(interaction.guild, role)
+    if rejection_reason is not None:
+        await interaction.response.send_message(f"⚠️ {rejection_reason}", ephemeral=True)
         return
 
     await settings_manager.update(interaction.guild.id, {"verified_role_id": role.id})
@@ -290,12 +288,9 @@ async def verify_set_unverified_role(
     if interaction.guild is None:
         return
 
-    if role >= interaction.guild.me.top_role:
-        await interaction.response.send_message(
-            "⚠️ My bot's role is not above that role, so I won't be able to assign it. "
-            "Move my role higher in Server Settings > Roles, then try again.",
-            ephemeral=True,
-        )
+    rejection_reason = validate_assignable_role(interaction.guild, role)
+    if rejection_reason is not None:
+        await interaction.response.send_message(f"⚠️ {rejection_reason}", ephemeral=True)
         return
 
     await settings_manager.update(interaction.guild.id, {"unverified_role_id": role.id})
@@ -304,6 +299,26 @@ async def verify_set_unverified_role(
         "Remember to also deny **View Channel** for this role on any channels you want hidden "
         "until verification - assigning the role alone doesn't hide anything by itself.",
         ephemeral=True,
+    )
+
+
+@bot.tree.command(
+    name="verify-set-channel",
+    description="Set the channel where the verification message will be posted",
+)
+@app_commands.guild_only()
+@app_commands.checks.has_permissions(manage_guild=True)
+async def verify_set_channel(
+    interaction: discord.Interaction, channel: discord.TextChannel
+) -> None:
+    if interaction.guild is None:
+        return
+
+    await settings_manager.update(
+        interaction.guild.id, {"verify_channel_id": channel.id}
+    )
+    await interaction.response.send_message(
+        f"Verification channel set to {channel.mention}.", ephemeral=True
     )
 
 
@@ -385,6 +400,31 @@ async def verify_post(interaction: discord.Interaction) -> None:
         )
         return
 
+    verify_channel_id = guild_settings.get("verify_channel_id")
+    if verify_channel_id is None:
+        await interaction.response.send_message(
+            "Set a verification channel first with `/verify-set-channel`, or use `/verify setup`.",
+            ephemeral=True,
+        )
+        return
+
+    target_channel = interaction.guild.get_channel(verify_channel_id)
+    if target_channel is None:
+        await interaction.response.send_message(
+            f"The configured verification channel (<#{verify_channel_id}>) no longer exists. "
+            "Set a new one with `/verify-set-channel`.",
+            ephemeral=True,
+        )
+        return
+
+    if not isinstance(target_channel, discord.abc.Messageable):
+        await interaction.response.send_message(
+            f"The configured verification channel (<#{verify_channel_id}>) isn't a channel type "
+            "I can post in. Set a different one with `/verify-set-channel`.",
+            ephemeral=True,
+        )
+        return
+
     # get_module() already falls back to Button for an unknown/invalid stored
     # method, so module.display_name below is always safe - unlike indexing
     # MODULES[guild_settings["method"]] directly, which would raise KeyError
@@ -406,53 +446,19 @@ async def verify_post(interaction: discord.Interaction) -> None:
             inline=False,
         )
 
-    # Post in the channel configured via /verify setup, not wherever this
-    # command happened to be run - falling back to the current channel only
-    # if none is configured, or the configured one is no longer usable.
-    verify_channel_id = guild_settings.get("verify_channel_id")
-    target_channel: discord.abc.Messageable | None = None
-    fallback_warning: str | None = None
-
-    if verify_channel_id is not None:
-        configured_channel = interaction.guild.get_channel(verify_channel_id)
-        if configured_channel is None:
-            fallback_warning = (
-                f"⚠️ The configured verification channel (<#{verify_channel_id}>) no longer exists - "
-                "posted here instead. Run `/verify setup` to pick a new one."
-            )
-        elif not isinstance(configured_channel, discord.abc.Messageable):
-            fallback_warning = (
-                f"⚠️ The configured verification channel (<#{verify_channel_id}>) isn't a channel "
-                "type I can post in - posted here instead. Run `/verify setup` to pick a new one."
-            )
-        else:
-            target_channel = configured_channel
-
-    if target_channel is None:
-        if not isinstance(interaction.channel, discord.abc.Messageable):
-            await interaction.response.send_message(
-                "This can't be posted in this type of channel, and no valid verification "
-                "channel is configured. Run `/verify setup` to pick one.",
-                ephemeral=True,
-            )
-            return
-        target_channel = interaction.channel
-
     try:
         await target_channel.send(embed=embed, view=view)
     except discord.Forbidden:
-        channel_mention = getattr(target_channel, "mention", "that channel")
         await interaction.response.send_message(
-            f"I don't have permission to post in {channel_mention}. Check my channel permissions there.",
+            f"I don't have permission to post in {target_channel.mention}. "
+            "Check my channel permissions there.",
             ephemeral=True,
         )
         return
 
-    channel_mention = getattr(target_channel, "mention", "this channel")
-    confirmation = f"Verification message posted in {channel_mention}."
-    if fallback_warning:
-        confirmation = f"{fallback_warning}\n{confirmation}"
-    await interaction.response.send_message(confirmation, ephemeral=True)
+    await interaction.response.send_message(
+        f"Verification message posted in {target_channel.mention}.", ephemeral=True
+    )
 
 
 @bot.tree.command(

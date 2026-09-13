@@ -98,10 +98,6 @@ async def _assign_verified_role(
 
     try:
         await member.add_roles(verified_role, reason="Passed verification")
-        if unverified_role_id:
-            unverified_role = guild.get_role(unverified_role_id)
-            if unverified_role and unverified_role in member.roles:
-                await member.remove_roles(unverified_role, reason="Passed verification")
     except discord.Forbidden:
         logger.warning(
             "Missing permission to assign role %s to %s in guild %s",
@@ -114,6 +110,31 @@ async def _assign_verified_role(
             "I don't have permission to assign that role. Ask an admin to move my bot's role "
             "above the Verified role in Server Settings > Roles."
         )
+
+    # The part that actually matters succeeded - the user now has the
+    # Verified role. Removing the Unverified role (if configured) is cleanup,
+    # not a condition for success: if THIS fails, the user is still
+    # genuinely verified and must not be told otherwise. Log it separately
+    # so an admin notices the leftover role, but don't fail the whole result
+    # over it.
+    if unverified_role_id:
+        unverified_role = guild.get_role(unverified_role_id)
+        if unverified_role and unverified_role in member.roles:
+            try:
+                await member.remove_roles(unverified_role, reason="Passed verification")
+            except discord.Forbidden:
+                logger.warning(
+                    "Verified role granted to %s in guild %s, but missing permission to remove Unverified role %s",
+                    member,
+                    guild.id,
+                    unverified_role_id,
+                )
+                await _log(
+                    guild,
+                    settings,
+                    f"⚠️ {member} was verified, but I couldn't remove their Unverified role "
+                    f"(missing permission). Check my role position/permissions.",
+                )
 
     logger.info("%s (%s) passed verification in guild %s", member, member.id, guild.id)
     await _log(guild, settings, f"✅ {member} ({member.id}) passed verification.")

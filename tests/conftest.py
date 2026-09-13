@@ -10,6 +10,7 @@ a real bot token, which this sandbox/CI environment doesn't have anyway.
 
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 import discord
@@ -24,8 +25,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 class FakeRole:
-    def __init__(self, role_id):
+    def __init__(self, role_id, is_default=False, managed=False):
         self.id = role_id
+        self.mention = f"<@&{role_id}>"
+        self._is_default = is_default
+        self.managed = managed
+
+    def is_default(self):
+        return self._is_default
 
     def __eq__(self, other):
         return isinstance(other, FakeRole) and self.id == other.id
@@ -56,12 +63,22 @@ class FakeMember:
         self.dm_forbidden = False
         self.kicked = False
         self.kick_forbidden = False
+        self.add_roles_forbidden = False
+        self.remove_roles_forbidden = False
 
     async def add_roles(self, role, reason=None):
+        if self.add_roles_forbidden:
+            raise discord.Forbidden(
+                response=FakeHTTPResponse(), message="Cannot add role"
+            )
         self.added_roles.append(role.id)
         self.roles.append(role)
 
     async def remove_roles(self, role, reason=None):
+        if self.remove_roles_forbidden:
+            raise discord.Forbidden(
+                response=FakeHTTPResponse(), message="Cannot remove role"
+            )
         self.removed_roles.append(role.id)
         self.roles = [r for r in self.roles if r.id != role.id]
 
@@ -94,6 +111,14 @@ class FakeGuild:
         self.name = name
         self._roles = {r.id: r for r in (roles or [])}
         self._member = member
+        # Permissive default: the bot can manage roles and its top role sits
+        # above anything a test is likely to construct. Override guild.me
+        # directly in tests that need to exercise a restrictive scenario
+        # (missing permission, insufficient hierarchy, etc.).
+        self.me = SimpleNamespace(
+            top_role=FakeRole(999999),
+            guild_permissions=SimpleNamespace(manage_roles=True),
+        )
 
     def get_role(self, role_id):
         return self._roles.get(role_id)
@@ -120,6 +145,13 @@ class FakeResponse:
         self.sent = []
         self.sent_kwargs = []
         self._done = False
+        self.deferred = False
+        self.deferred_ephemeral = None
+
+    async def defer(self, ephemeral=False, **kwargs):
+        self.deferred = True
+        self.deferred_ephemeral = ephemeral
+        self._done = True
 
     async def send_message(self, content=None, **kwargs):
         self.sent.append(content)

@@ -13,10 +13,13 @@ from ui.setup_wizard import (
 from tests.conftest import FakeRole, FakeGuild, FakeInteraction
 
 
-def _guild_with_bot_role_above(top_role_id=999):
+def _guild_with_bot_role_above(top_role_id=999, manage_roles=True):
     """A guild where the bot's own top role sits above anything picked in these tests."""
     guild = FakeGuild()
-    guild.me = SimpleNamespace(top_role=FakeRole(top_role_id))
+    guild.me = SimpleNamespace(
+        top_role=FakeRole(top_role_id),
+        guild_permissions=SimpleNamespace(manage_roles=manage_roles),
+    )
     return guild
 
 
@@ -127,6 +130,53 @@ async def test_role_select_rejects_role_at_or_above_bot():
 
     assert view.verified_role_id is None  # rejected, not saved
     assert "isn't above" in interaction.response.sent[0]
+
+
+async def test_role_select_rejects_everyone():
+    view = SetupView({})
+    select = next(c for c in view.children if isinstance(c, VerifiedRoleSelect))
+
+    guild = _guild_with_bot_role_above(top_role_id=999)
+    everyone_role = FakeRole(guild.id, is_default=True)
+    select._values = [everyone_role]
+    interaction = FakeInteraction(guild=guild)
+
+    await select.callback(interaction)
+
+    assert view.verified_role_id is None
+    assert "@everyone" in interaction.response.sent[0]
+
+
+async def test_role_select_rejects_managed_role():
+    view = SetupView({})
+    select = next(c for c in view.children if isinstance(c, VerifiedRoleSelect))
+
+    guild = _guild_with_bot_role_above(top_role_id=999)
+    managed_role = FakeRole(
+        50, managed=True
+    )  # well below the bot's role, but still managed
+    select._values = [managed_role]
+    interaction = FakeInteraction(guild=guild)
+
+    await select.callback(interaction)
+
+    assert view.verified_role_id is None
+    assert "managed by an integration" in interaction.response.sent[0]
+
+
+async def test_role_select_rejects_when_bot_lacks_manage_roles():
+    view = SetupView({})
+    select = next(c for c in view.children if isinstance(c, VerifiedRoleSelect))
+
+    guild = _guild_with_bot_role_above(top_role_id=999, manage_roles=False)
+    role = FakeRole(50)
+    select._values = [role]
+    interaction = FakeInteraction(guild=guild)
+
+    await select.callback(interaction)
+
+    assert view.verified_role_id is None
+    assert "Manage Roles" in interaction.response.sent[0]
 
 
 # --- VerifyChannelSelect ---
