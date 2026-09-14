@@ -9,44 +9,41 @@ description = "A modular Discord verification and anti-bot system."
 readme = "README.md"
 requires-python = ">=3.12"
 license = { text = "MIT" }
-
 authors = [
-{ name = "TheAliRh" }
+    { name = "TheAliRh" }
 ]
-
 keywords = [
-"discord",
-"discord-bot",
-"verification",
-"captcha",
-"oauth2",
-"anti-bot"
+    "discord",
+    "discord-bot",
+    "verification",
+    "captcha",
+    "oauth2",
+    "anti-bot",
 ]
-
 classifiers = [
-"Development Status :: 4 - Beta",
-"Intended Audience :: Developers",
-"License :: OSI Approved :: MIT License",
-"Programming Language :: Python :: 3",
-"Programming Language :: Python :: 3.12",
-"Programming Language :: Python :: 3.13",
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
 ]
-
 dependencies = [
-"discord.py>=2.4.0",
-"aiosqlite>=0.20.0",
-"aiohttp>=3.10.0",
-"aiosmtplib>=3.0.0",
-"Pillow>=10.0.0",
-"python-dotenv>=1.0.0",
-"twilio>=9.0.0",
+    "discord.py>=2.4.0",
+    "aiosqlite>=0.20.0",
+    "aiohttp>=3.10.0",
+    "aiosmtplib>=3.0.0",
+    "Pillow>=10.0.0",
+    "python-dotenv>=1.0.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-"pytest>=8.0.0",
-"pytest-asyncio>=0.23.0",
-"ruff>=0.6.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "pytest-timeout>=2.3.0",
+    "ruff>=0.6.0",
+    "mypy>=1.11.0",
 ]
 
 [project.urls]
@@ -65,10 +62,10 @@ target-version = "py312"
 
 [tool.ruff.lint]
 select = [
-"E",
-"F",
-"I",
-"B",
+    "E",
+    "F",
+    "I",
+    "B",
 ]
 
 [tool.setuptools]
@@ -77,9 +74,9 @@ py-modules = ["bot"]
 [tool.setuptools.packages.find]
 where = ["."]
 include = [
-"core*",
-"modules*",
-"settings*",
-"ui*",
-"web*",
+    "core*",
+    "modules*",
+    "settings*",
+    "ui*",
+    "web*",
 ]
